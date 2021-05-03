@@ -1,15 +1,18 @@
 clc;
-clear all;
+clear variables;
 close all;
 
 diary findRejDataLog
 filesep = '/';
 
+currentDir = pwd;
+
 % Input path
-rejPath='/Users/huseyinelmas/CCNLAB/IntacerebralEEG_ActionBase/ArtifactRejected/';
+rejPath = fullfile(currentDir, '..', 'Data', 'ArtifactRejected', filesep);
+
 
 % Output path
-outPath='/Users/huseyinelmas/CCNLAB/IntacerebralEEG_ActionBase/TF_Analyzed/';
+outPath = fullfile(currentDir, '..', 'Data', 'TF_Analyzed', filesep);
 
 lowTbas = -500; % baseline period lower end (ms)
 highTbas = 0; % baseline period higher end (ms)
@@ -31,9 +34,10 @@ end
 rejFlist=cell(subjectNumber,1);
 rejFnames=cell(subjectNumber,1);
 for i=1:subjectNumber
+    
     fileList = dir([strcat(rejPath,subjNames{i}) filesep strcat(subjNames{i},'*.mat')]); % specify the subject .mat files
     for a = 1:length(fileList)
-        rejFlist{a,1} = strcat(rejPath,subjNames{i},'/',fileList(a,1).name);
+        rejFlist{a,1} = strcat(rejPath,subjNames{i}, filesep, fileList(a,1).name);
         rejFnames{a,1} = fileList(a,1).name;
     end
 end
