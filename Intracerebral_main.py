@@ -92,6 +92,6 @@ for condition_file in condition_files:
         else:
             lead_data_map[lead_name]["data"].extend(X)
             lead_data_map[lead_name]["labels"].extend(Y)
-
+print("done")
 # Using lead data map, we can do a classification for each lead
 
