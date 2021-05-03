@@ -86,12 +86,12 @@ for condition_file in condition_files:
                 Y.append(label_condition_map[cond[0]])
                
 
-        # Save the leads data and labels in a map
-        if lead_name not in lead_data_map.keys():
-            lead_data_map[lead_name] = {"data": X, "labels": Y}
-        else:
-            lead_data_map[lead_name]["data"].extend(X)
-            lead_data_map[lead_name]["labels"].extend(Y)
+            # Save the leads data and labels in a map
+            if lead_name not in lead_data_map.keys():
+                lead_data_map[lead_name] = {"data": X, "labels": Y}
+            else:
+                lead_data_map[lead_name]["data"].extend(X)
+                lead_data_map[lead_name]["labels"].extend(Y)
 print("done")
 # Using lead data map, we can do a classification for each lead
 
