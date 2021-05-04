@@ -1,3 +1,4 @@
+import re
 import numpy as np
 import scipy.io
 import re
@@ -8,11 +9,11 @@ import pandas as pd
 # TODO: HOW TO TEST IF LEAD CONDITION ETC MATCHES
 def read_data(subject_path):
     # Mapping from condition to label TENTATIVE
-    # event_code_to_action_category_map = {
-    #     "1": "BOD",
-    #     "4": "OBJ",
-    #     "7": "PER",
-    # }
+    event_code_to_action_category_map = {
+        "1": "BOD",
+        "4": "OBJ",
+        "7": "PER",
+    }
 
     # A dictionary to keep datapoint and labels associated with each lead
     # Each key is the name of the lead and each value is a dictionary
@@ -71,15 +72,18 @@ def read_data(subject_path):
                     # Add the power to the data points list
                     # If there is more than one trial left
                     # then add the trials as list elements
-                    data_vectors.extend(np.hsplit(power.reshape(-1, power.shape[-1]), no_trials))
+                    temp = np.hsplit(power.reshape(-1, power.shape[-1]), no_trials)
 
+                    # Squeeze each trial
+                    for i in range(len(temp)):
+                        temp[i] = temp[i].squeeze()
+
+                    data_vectors.extend(temp)
                     # Add condition as label and add it as many times as the power has trials
                     # We can also use the conditions first character here for the class
                     # since 1 is Body, 4 is OBj and 7 is Person
                     labels.extend([action_category] * no_trials)
-
                 else:
-
                     # If there is only one trial then the shape will be 2d,
                     # add it as one element to the list
                     data_vectors.append(power.flatten())
