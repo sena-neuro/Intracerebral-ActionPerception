@@ -75,16 +75,18 @@ def read_data(subject_path):
                     # Add the power to the data points list
                     # If there is more than one trial left
                     # then add the trials as list elements
-                    data_vectors.extend(np.hsplit(power.reshape(-1, power.shape[-1]), no_trials))
+                    temp = np.hsplit(power.reshape(-1, power.shape[-1]), no_trials)
 
+                    # Squeeze each trial
+                    for i in range(len(temp)):
+                        temp[i] = temp[i].squeeze()
+
+                    data_vectors.extend(temp)
                     # Add condition as label and add it as many times as the power has trials
                     # We can also use the conditions first character here for the class
                     # since 1 is Body, 4 is OBj and 7 is Person
                     labels.extend([action_category] * no_trials)
-
-
                 else:
-
                     # If there is only one trial then the shape will be 2d,
                     # add it as one element to the list
                     data_vectors.append(power.flatten())
@@ -97,38 +99,3 @@ def read_data(subject_path):
 
     lead_df = pd.DataFrame.from_dict(lead_dict)
     return lead_df
-
-### USAGE ####
-# Using lead data map, we can do a classification for each lead
-#Input path
-input_path = Path().resolve().parent / 'Data' / 'TF_Analyzed'
-
-# Get names of the subject folders
-subject_paths = [x for x in input_path.iterdir() if x.is_dir()]
-n_subjects = len(subject_paths)
-
-lead_df = read_data(subject_paths[0])
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-
-#Classifier is LDA
-clf = LinearDiscriminantAnalysis()
-
-# Decode action categories on each lead
-for lead, data in lead_dict.items():
-  X = data['power']
-  y = data['action_category']
-  print(X.shape)
-  clf.fit(X,y)
-
-conds = ["BOD", "OBJ","PER"]
-
-# Get all trials for a lead by indexing the df
-# for each combination of 2 of condition
-#from itertools import combinations
-
-#comb = combinations([conds, 2)
-
-# Print the obtained combinations
-#for i in list(comb):
-#   do lda and keep the score
-# maybe create a df or dictionary to keep the one vs one scores
