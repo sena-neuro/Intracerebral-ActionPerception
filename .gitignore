@@ -1,4 +1,13 @@
 .DS_Store
 
-/Data
-/Data/*
+Data/
+Data/*
+
+.idea/
+.idea/*
+
+*.xml
+*.iml
+
+Decoding/*.pkl
+Preprocessing/findRejDataLog
