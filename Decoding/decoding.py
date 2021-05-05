@@ -15,6 +15,7 @@ import pandas as pd
 from itertools import combinations
 from collections import defaultdict
 from sklearn.model_selection import permutation_test_score
+from os import path
 
 
 def decode_each_lead(lead_data_df,clf=svm.SVC(decision_function_shape='ovo')):
@@ -53,10 +54,7 @@ def decode_each_lead(lead_data_df,clf=svm.SVC(decision_function_shape='ovo')):
 
 # Using lead data map, we can do a classification for each lead
 # Input path
-input_path = Path().resolve().parent / 'Data' / 'TF_Analyzed'
-
 # Get names of the subject folders
-subject_paths = [x for x in input_path.iterdir() if x.is_dir()]
 
 # Mapping from condition to label TENTATIVE
 event_code_to_action_category_map = {
@@ -66,8 +64,10 @@ event_code_to_action_category_map = {
 }
 
 # Using lead data map, we can do a classification for each lead Input path
-input_path = Path().resolve().parent / 'Data' / 'TF_Analyzed'
+input_path = Path(path.join(Path().resolve().parent, 'Data', 'TF_Analyzed'))
+output_path = Path(path.join(Path().resolve().parent, 'Results'))
 
+subject_paths = [x for x in input_path.iterdir() if x.is_dir()]
 # Classification results dictionary  items are 'lead': [lead_name1,lead_name2,..,]
 #                                               'classification_type': (Body,Per) or  (Body,Obj) or (Per,Obj)
 #                                               accuracy: [Acc1,Acc2,...,]
@@ -75,7 +75,7 @@ input_path = Path().resolve().parent / 'Data' / 'TF_Analyzed'
 classification_results_dict = defaultdict(list)
 
 # n_subjects = len(subject_paths)
-file = 'lead_df.pkl'
+file = path.join(output_path,'lead_df.pkl')
 if Path(file).exists():
     lead_df = pd.read_pickle(file)
 else:
@@ -91,6 +91,6 @@ for lead in lead_df.lead.unique():
         classification_results_dict["accuracy"].append(result["score"])
         classification_results_dict["pvalue"].append(result["pvalue"])
 
-classification_results_file = 'classification_results_df.pkl'
+classification_results_file =  path.join(output_path,'classification_results_df.pkl')
 classification_results_df = pd.DataFrame.from_dict(classification_results_dict)
 classification_results_df.to_pickle(classification_results_file)
