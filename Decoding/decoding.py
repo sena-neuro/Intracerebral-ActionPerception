@@ -6,7 +6,6 @@ Created on Mon May  3 12:42:59 2021
 @author: Sena Er github: sena-neuro
 """
 from sklearn import svm
-from sklearn.metrics import confusion_matrix, classification_report, f1_score, make_scorer
 from Decoding.read_data import read_data
 from pathlib import Path
 import numpy as np
@@ -16,9 +15,11 @@ from itertools import combinations
 from collections import defaultdict
 from sklearn.model_selection import permutation_test_score
 from os import path
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import make_pipeline
 
 
-def decode_each_lead(lead_data_df,clf=svm.SVC(decision_function_shape='ovo')):
+def decode_each_lead(lead_data_df,clf=svm.SVC()):
 
     # Function will return this, we will put this to a bigger dict and convert to pandas
     lead_results_dict = {}
@@ -40,15 +41,15 @@ def decode_each_lead(lead_data_df,clf=svm.SVC(decision_function_shape='ovo')):
 
         # Create Cross validation
         cv = KFold(n_splits=2, random_state=None, shuffle=True)
-        # cv = RepeatedKFold(n_splits=10, n_repeats=3, random_state=1)
+        # cv = RepeatedKFold(n_splits=5, n_repeats=3, random_state=0)
 
         # Permutation test
         # TODO: change n_permutations to a higher value when running
         score, perm_scores, pvalue = permutation_test_score(
-            clf, X, y, scoring="accuracy", cv=cv, n_permutations=10)
+            clf, X, y, scoring="accuracy", cv=cv, n_permutations=10,n_jobs=-1)
 
         # Save the result to a dictionary to use later
-        lead_results_dict[combination] = {"score": score,"pvalue": pvalue}
+        lead_results_dict[combination] = {"score": score, "p_value": pvalue, "n_trials": len(X)}
     return lead_results_dict
 
 
@@ -85,12 +86,16 @@ else:
 for lead in lead_df.lead.unique():
     df = lead_df.loc[lead_df['lead'] == lead]
     lead_result_dict = decode_each_lead(df)
+
+    # to use scaling
+    # lead_result_dict = decode_each_lead(df,make_pipeline(StandardScaler(), svm.SVC()))
     for comb, result in lead_result_dict.items():
         classification_results_dict["lead"].append(lead)
         classification_results_dict["classification_type"].append(comb)
         classification_results_dict["accuracy"].append(result["score"])
-        classification_results_dict["pvalue"].append(result["pvalue"])
+        classification_results_dict["p_value"].append(result["p_value"])
+        classification_results_dict["n_trials"].append(result["n_trials"])
 
-classification_results_file =  path.join(output_path,'classification_results_df.pkl')
+classification_results_file = path.join(output_path,'classification_results_df.pkl')
 classification_results_df = pd.DataFrame.from_dict(classification_results_dict)
 classification_results_df.to_pickle(classification_results_file)
