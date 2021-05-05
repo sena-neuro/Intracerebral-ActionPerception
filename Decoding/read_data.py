@@ -39,7 +39,7 @@ def read_data(subject_path):
         # Find the indices of underscore character
         # The condition label is between the 2nd and 3rd underscores
         # Maybe get only the used part of the label but we can still use only a part of this in next steps
-        action_category = event_code[0]
+        action_category = event_code_to_action_category_map[event_code[0]]
 
         # We will do the classification for each lead, run a loop for all leads
         # We need to scan all files of a subject to be able to start classification since different files
