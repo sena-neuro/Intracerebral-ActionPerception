@@ -6,8 +6,8 @@ from collections import defaultdict
 import pandas as pd
 
 
-# TODO: HOW TO TEST IF LEAD CONDITION ETC MATCHES
 def read_data(subject_path):
+
     # Mapping from condition to label TENTATIVE
     event_code_to_action_category_map = {
         "1": "BOD",
@@ -22,16 +22,17 @@ def read_data(subject_path):
 
     # Get names of the condition files in the subjecets folder
     condition_paths = [x for x in subject_path.iterdir() if x.match('*.mat')]
-    # n_conditions = len(condition_paths)
 
     # Read each condition file and create label
     for condition_path in condition_paths:
 
         condition_mat_struct = scipy.io.loadmat(condition_path, struct_as_record=False)["D"]
         # n_leads = len(condition_mat_struct)
+        # Get the codes written in the subject file name and seperated with _
 
-        pattern = r"condition\_(.*?)\_"
-        event_code = re.search(pattern, condition_path.stem).group(1)
+        code_list = condition_path.stem.split("_")
+        event_code = code_list[2]
+        subject_name = code_list[0]
 
         # Find the indices of underscore character
         # The condition label is between the 2nd and 3rd underscores
@@ -55,9 +56,13 @@ def read_data(subject_path):
             # Get lead name
             lead_name = lead_data.ChanName[0]
 
+            # Check if the lead name follows the format and isnt one of the unnecessary leads
+            lead_name_correct = re.match("([A-Z]'?(([0-9]+'?)|[A-Z]?)$)", lead_name)
+
+
             # Check if the lead is iEEG There are some probable unnecesssary channels here e.g EOG2 DEL4?
             # If the AR_tfX has a size 0f 0 then all trials must have been rejected.
-            if lead_data.ChanType[0] == "iEEG" and lead_data.AR_tfX.size != 0:
+            if lead_data.ChanType[0] == "iEEG" and lead_data.AR_tfX.size != 0 and lead_name_correct:
 
                 # Get the power information (50x200xtrial)
                 power = lead_data.AR_power
@@ -90,6 +95,7 @@ def read_data(subject_path):
                     labels.append(action_category)
 
                 # Save the leads data and labels in a map
+                lead_dict["subject_name"].extend([subject_name]*no_trials)
                 lead_dict["lead"].extend([lead_name] * no_trials)
                 lead_dict["action_category"].extend(labels)
                 lead_dict["power"].extend(data_vectors)
