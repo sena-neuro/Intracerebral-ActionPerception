@@ -8,6 +8,7 @@ Created on Mon May  3 12:42:59 2021
 from sklearn import svm
 from Decoding.read_data import read_data
 from pathlib import Path
+import re
 import numpy as np
 from sklearn.model_selection import RepeatedKFold, cross_val_score, KFold
 import pandas as pd
@@ -17,9 +18,10 @@ from sklearn.model_selection import permutation_test_score
 from os import path
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 
 
-def decode_each_lead(lead_data_df,clf=svm.SVC()):
+def decode_each_lead(lead_data_df,clf):
 
     # Function will return this, we will put this to a bigger dict and convert to pandas
     lead_results_dict = {}
@@ -30,7 +32,6 @@ def decode_each_lead(lead_data_df,clf=svm.SVC()):
 
     # Run classification for each of the combinations e.g. Body vs Per ...
     for combination in list(combs):
-
         # Index of the trials with labels as first or second element of the combination
         ind1 = lead_data_df["action_category"] == combination[0]
         ind2 = lead_data_df["action_category"] == combination[1]
@@ -40,13 +41,13 @@ def decode_each_lead(lead_data_df,clf=svm.SVC()):
         y = lead_data_df[ind1 | ind2].action_category.tolist()
 
         # Create Cross validation
-        cv = KFold(n_splits=2, random_state=None, shuffle=True)
-        # cv = RepeatedKFold(n_splits=5, n_repeats=3, random_state=0)
+        # cv = KFold(n_splits=5, random_state=0, shuffle=True)
+        cv = RepeatedKFold(n_splits=5, n_repeats=3, random_state=0)
 
         # Permutation test
-        # TODO: change n_permutations to a higher value when running
+        # TODO: change n_permutations to a higher value when running on server
         score, perm_scores, pvalue = permutation_test_score(
-            clf, X, y, scoring="accuracy", cv=cv, n_permutations=10,n_jobs=-1)
+            clf, X, y, scoring="accuracy", cv=cv, n_permutations=100, n_jobs=-1)
 
         # Save the result to a dictionary to use later
         lead_results_dict[combination] = {"score": score, "p_value": pvalue, "n_trials": len(X)}
@@ -68,6 +69,7 @@ event_code_to_action_category_map = {
 input_path = Path(path.join(Path().resolve().parent, 'Data', 'TF_Analyzed'))
 output_path = Path(path.join(Path().resolve().parent, 'Results'))
 
+# For server the input and output paths will
 subject_paths = [x for x in input_path.iterdir() if x.is_dir()]
 # Classification results dictionary  items are 'lead': [lead_name1,lead_name2,..,]
 #                                               'classification_type': (Body,Per) or  (Body,Obj) or (Per,Obj)
@@ -76,26 +78,38 @@ subject_paths = [x for x in input_path.iterdir() if x.is_dir()]
 classification_results_dict = defaultdict(list)
 
 # n_subjects = len(subject_paths)
-file = path.join(output_path,'lead_df.pkl')
+file = path.join(output_path, 'lead_df.pkl')
 if Path(file).exists():
     lead_df = pd.read_pickle(file)
 else:
     lead_df = read_data(subject_paths[0])
     lead_df.to_pickle(file)
 
-for lead in lead_df.lead.unique():
-    df = lead_df.loc[lead_df['lead'] == lead]
-    lead_result_dict = decode_each_lead(df)
+# Classifier for the decoding
+clf = make_pipeline(StandardScaler(), svm.SVC())
 
-    # to use scaling
-    # lead_result_dict = decode_each_lead(df,make_pipeline(StandardScaler(), svm.SVC()))
-    for comb, result in lead_result_dict.items():
-        classification_results_dict["lead"].append(lead)
-        classification_results_dict["classification_type"].append(comb)
-        classification_results_dict["accuracy"].append(result["score"])
-        classification_results_dict["p_value"].append(result["p_value"])
-        classification_results_dict["n_trials"].append(result["n_trials"])
+for subject_no, subject in enumerate(lead_df.subject_name.unique()):
+    for lead_no, lead in enumerate(lead_df.lead.unique()):
 
-classification_results_file = path.join(output_path,'classification_results_df.pkl')
+        # Not necessary after updating the lead df file
+        print("----Processing Lead number:  ", lead_no, "of ", len(lead_df.lead.unique()), "---------")
+
+        df = lead_df.loc[(lead_df['lead'] == lead) &
+                        (lead_df['subject_name'] == subject)]
+
+        # lead_result_dict = decode_each_lead(df)
+        # to use scaling
+        # lead_result_dict = decode_each_lead(df, clf=make_pipeline(StandardScaler(), svm.SVC()))
+        # To use LDA
+        lead_result_dict = decode_each_lead(df, clf=clf)
+        for comb, result in lead_result_dict.items():
+            classification_results_dict["subject"].append(subject)
+            classification_results_dict["lead"].append(lead)
+            classification_results_dict["classification_type"].append(comb)
+            classification_results_dict["accuracy"].append(result["score"])
+            classification_results_dict["p_value"].append(result["p_value"])
+            classification_results_dict["n_trials"].append(result["n_trials"])
+
+classification_results_file = path.join(output_path, 'classification_results_df_scale_LDA.pkl')
 classification_results_df = pd.DataFrame.from_dict(classification_results_dict)
 classification_results_df.to_pickle(classification_results_file)
