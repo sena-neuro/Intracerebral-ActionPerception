@@ -6,8 +6,6 @@ Created on Mon May  3 12:42:59 2021
 @author: Sena Er github: sena-neuro
 """
 # TODO delete later when we are %100 sure it is not freezing
-from multiprocessing import freeze_support
-
 from sklearn import svm
 from Decoding.read_data import read_data
 from pathlib import Path
@@ -57,7 +55,7 @@ def binary_action_category_decoder(x, y):
     # Permutation test
     # TODO: change n_permutations to a higher value when running on server
     score, perm_scores, p_value = permutation_test_score(
-        clf, x, y, scoring="accuracy", cv=cv, n_permutations=100, n_jobs=-1)
+        clf, x, y, scoring="accuracy", cv=cv, n_permutations=100)
     return score, perm_scores, p_value
 
 
@@ -71,9 +69,8 @@ def decode_each_lead(df, lead, subject):
     :keyword lead_data_df (Pandas Dataframe)
         Data belonging to a subject
     """
-
-    df = lead_df.loc[(df['lead'] == lead) &
-                     (df['subject_name'] == subject)]
+    df = df.loc[(df['lead'] == lead) &
+                (df['subject_name'] == subject)]
 
     # Run classification for each of the combinations e.g. Body vs Per ...
     for ac_pair in combinations(action_categories, 2):
@@ -102,6 +99,7 @@ def log_result(result):
     # This is called whenever decode_each_lead returns a result.
     # result_list is modified only by the main process, not the pool workers.
     classification_results_list.append(result)
+    print("Lead ", result[1], " is finished!")
 
 
 def mp_decode(df):
@@ -120,8 +118,6 @@ def mp_decode(df):
 
 
 if __name__ == '__main__':
-    freeze_support()
-
     # Using lead data map, we can do a classification for each lead Input path
     parent_path = Path().resolve().parent
     input_path = parent_path / 'Data' / 'TF_Analyzed'
@@ -139,6 +135,13 @@ if __name__ == '__main__':
 
     mp_decode(lead_df)
 
-    classification_results_df = pd.DataFrame.from_records(classification_results_list)
+    classification_results_df = pd.DataFrame.from_records(classification_results_list,
+                                                          columns=["subject",
+                                                                   "lead",
+                                                                   "classification_type",
+                                                                   "accuracy",
+                                                                   "p_value",
+                                                                   "n_trials"
+                                                                   ])
     classification_results_file = output_path / 'classification_results_df_scale_svm.pkl'
     classification_results_df.to_pickle(classification_results_file)
