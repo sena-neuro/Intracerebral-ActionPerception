@@ -9,16 +9,14 @@ Created on Mon May  3 12:42:59 2021
 from sklearn import svm
 from Decoding.read_data import read_data
 from pathlib import Path
-from sklearn.model_selection import RepeatedKFold, cross_val_score, KFold
+from sklearn.model_selection import GridSearchCV, train_test_split, KFold, RepeatedKFold, cross_val_score
 import pandas as pd
 from itertools import combinations
 from sklearn.model_selection import permutation_test_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-
 import multiprocessing as mp
-
 # TODO LATER For quick Pandas apply
 # import swifter
 
@@ -31,11 +29,8 @@ event_code_to_action_category_map = {
 action_categories = [ac for ac in event_code_to_action_category_map.values()]
 classification_results_list = []
 
-# Classifier for the decoding
-clf = make_pipeline(StandardScaler(), svm.SVC())
 
-
-def binary_action_category_decoder(x, y):
+def binary_action_category_decoder(x, y, cv, clf, grid_search=False, param_grid=None):
     """
     Pairwise action category decoding
 
@@ -47,10 +42,14 @@ def binary_action_category_decoder(x, y):
         action category
     """
 
-    # Create Cross validation
-    cv = KFold(n_splits=5, random_state=0, shuffle=True)
-    # Efficiency: May be too slow and not necessary
-    # cv = RepeatedKFold(n_splits=5, n_repeats=3, random_state=0)
+    if grid_search:
+        # Split into training and testing
+        x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.33, random_state=0)
+
+        search = GridSearchCV(svm.SVC(), param_grid=param_grid, cv=cv)
+        search.fit(x_train, y_train)
+        clf = search.best_estimator_
+        x = x_test, y = y_test
 
     # Permutation test
     # TODO: change n_permutations to a higher value when running on server
@@ -59,7 +58,7 @@ def binary_action_category_decoder(x, y):
     return score, perm_scores, p_value
 
 
-def decode_each_lead(df, lead, subject):
+def decode_each_lead(df, lead, subject, cv, clf, grid_search=False, param_grid=None):
     """
     Pairwise action category decoding on each lead
 
@@ -83,7 +82,7 @@ def decode_each_lead(df, lead, subject):
         x = df[ind1 | ind2].power.tolist()
         y = df[ind1 | ind2].action_category.tolist()
 
-        score, perm_scores, p_value = binary_action_category_decoder(x, y)
+        score, perm_scores, p_value = binary_action_category_decoder(x, y, cv, clf, grid_search, param_grid)
 
         return [subject,
                 lead,
@@ -105,13 +104,25 @@ def log_result(result):
 def mp_decode(df):
     pool = mp.Pool(mp.cpu_count())
 
+    # Classifier for the decoding
+    clf = make_pipeline(StandardScaler(), svm.SVC())
+
+    # Parameter grid for grid search
+    param_grid = {'C': [0.01, 0.1, 1, 10, 100],
+                  'gamma': [0.001, 0.01, 0.1]}
+
+    # Create Cross validation
+    cv = KFold(n_splits=5, random_state=0, shuffle=True)
+    # Efficiency: May be too slow and not necessary
+    # cv = RepeatedKFold(n_splits=5, n_repeats=3, random_state=0)
+
     # We do decoding on each lead of each subject INDEPENDENTLY
     # They can run at the same time; thus, we use multiprocessing
     # We use pool because they can run asynchronously
     for subject_no, subject in enumerate(df.subject_name.unique()):
         for lead_no, lead in enumerate(df.lead.unique()):
             pool.apply_async(decode_each_lead,
-                             args=(df, lead, subject),
+                             args=(df, lead, subject, cv, clf, True, param_grid),
                              callback=log_result)
     pool.close()
     pool.join()
@@ -144,4 +155,4 @@ if __name__ == '__main__':
                                                                    "n_trials"
                                                                    ])
     classification_results_file = output_path / 'classification_results_df_scale_svm.pkl'
-    classification_results_df.to_pickle(classification_results_file)
+    classification_results_df.to_pickle(str(classification_results_file))

@@ -33,6 +33,7 @@ def read_data(subject_path):
     lead_dict = defaultdict(list)
 
     # Get the names of the condition files in the subjects folder
+
     condition_paths = [x for x in subject_path.iterdir() if x.match('*.mat')]
 
     # Read each condition file and create label

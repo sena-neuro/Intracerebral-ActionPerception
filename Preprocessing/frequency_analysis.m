@@ -25,7 +25,8 @@ subjectNumber=0;
 
 % Eliminate files with . and find subject names
 for i=1:length(rejFolders)
-    if(~startsWith(rejFolders(i).name,'.'))
+    rejFolderNameChar = char(rejFolders(i).name);
+    if(~strcmp(rejFolderNameChar(1),'.'))
         subjectNumber = subjectNumber + 1;
         subjNames{subjectNumber,1} = rejFolders(i).name;
     end
