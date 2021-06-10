@@ -17,12 +17,13 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 import multiprocessing as mp
+
 # TODO LATER For quick Pandas apply
 # import swifter
 
 # Mapping from condition to label TENTATIVE
 event_code_to_action_category_map = {
-    "1": "Body-Displacing",
+    "1": "Skin-Displacing",
     "4": "Manipulative",
     "7": "Interpersonal",
 }
@@ -46,15 +47,17 @@ def binary_action_category_decoder(x, y, cv, clf, grid_search=False, param_grid=
         # Split into training and testing
         x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.33, random_state=0)
 
-        search = GridSearchCV(svm.SVC(), param_grid=param_grid, cv=cv)
+        search = GridSearchCV(svm.SVC(), param_grid=param_grid, cv=cv, n_jobs=1)
         search.fit(x_train, y_train)
         clf = search.best_estimator_
-        x = x_test, y = y_test
+        x = x_test
+        y = y_test
 
     # Permutation test
     # TODO: change n_permutations to a higher value when running on server
     score, perm_scores, p_value = permutation_test_score(
-        clf, x, y, scoring="accuracy", cv=cv, n_permutations=100)
+        clf, x, y, scoring="accuracy", cv=cv, n_permutations=100, n_jobs=1)
+
     return score, perm_scores, p_value
 
 
@@ -65,7 +68,7 @@ def decode_each_lead(df, lead, subject, cv, clf, grid_search=False, param_grid=N
     :returns decoding_results_dict (Pandas Dataframe)
         Stores the results of the classification
 
-    :keyword lead_data_df (Pandas Dataframe)
+    :keyword df (Pandas Dataframe)
         Data belonging to a subject
     """
     df = df.loc[(df['lead'] == lead) &
@@ -102,7 +105,7 @@ def log_result(result):
 
 
 def mp_decode(df):
-    pool = mp.Pool(mp.cpu_count())
+    pool = mp.Pool(1)   # mp.Pool(mp.cpu_count())
 
     # Classifier for the decoding
     clf = make_pipeline(StandardScaler(), svm.SVC())
@@ -121,9 +124,10 @@ def mp_decode(df):
     # We use pool because they can run asynchronously
     for subject_no, subject in enumerate(df.subject_name.unique()):
         for lead_no, lead in enumerate(df.lead.unique()):
-            pool.apply_async(decode_each_lead,
-                             args=(df, lead, subject, cv, clf, True, param_grid),
-                             callback=log_result)
+            if lead_no < 5:
+                pool.apply_async(decode_each_lead,
+                                 args=(df, lead, subject, cv, clf, True, param_grid),
+                                 callback=log_result)
     pool.close()
     pool.join()
 

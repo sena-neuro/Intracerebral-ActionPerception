@@ -10,7 +10,7 @@ import pandas as pd
 
 # Mapping from condition to label TENTATIVE
 event_code_to_action_category_map = {
-    "1": "Body-Displacing",
+    "1": "Skin-Displacing",
     "4": "Manipulative",
     "7": "Interpersonal",
 }
