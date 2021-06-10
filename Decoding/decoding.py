@@ -19,9 +19,11 @@ from os import path
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import train_test_split
 
 
-def decode_each_lead(lead_data_df,clf):
+def decode_each_lead(lead_data_df, clf, grid_search=False, param_grid=None):
 
     # Function will return this, we will put this to a bigger dict and convert to pandas
     lead_results_dict = {}
@@ -35,19 +37,28 @@ def decode_each_lead(lead_data_df,clf):
         # Index of the trials with labels as first or second element of the combination
         ind1 = lead_data_df["action_category"] == combination[0]
         ind2 = lead_data_df["action_category"] == combination[1]
+        cv = KFold(n_splits=5, random_state=0, shuffle=True)
 
         # Get the data using these indices ( trials with either one label or the other)
         X = lead_data_df[ind1 | ind2].power.tolist()
         y = lead_data_df[ind1 | ind2].action_category.tolist()
 
-        # Create Cross validation
-        # cv = KFold(n_splits=5, random_state=0, shuffle=True)
-        cv = RepeatedKFold(n_splits=5, n_repeats=3, random_state=0)
+        # Split into training and testing
+        if grid_search:
 
-        # Permutation test
-        # TODO: change n_permutations to a higher value when running on server
-        score, perm_scores, pvalue = permutation_test_score(
-            clf, X, y, scoring="accuracy", cv=cv, n_permutations=100, n_jobs=-1)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=0)
+            search = GridSearchCV(svm.SVC(), param_grid=param_grid, cv=cv)
+            search.fit(X_train, y_train)
+            score, perm_scores, pvalue = permutation_test_score(
+                search.best_estimator_, X_test, y_test, scoring="accuracy",
+                n_permutations=100, cv=cv)
+        else:
+            # Create Cross validation
+            # cv = RepeatedKFold(n_splits=5, n_repeats=3, random_state=0)
+
+            # Permutation test
+            score, perm_scores, pvalue = permutation_test_score(
+                clf, X, y, scoring="accuracy", n_permutations=100, cv=cv)
 
         # Save the result to a dictionary to use later
         lead_results_dict[combination] = {"score": score, "p_value": pvalue, "n_trials": len(X)}
@@ -66,6 +77,8 @@ event_code_to_action_category_map = {
 }
 
 # Using lead data map, we can do a classification for each lead Input path
+# server base = '/auto/data2/oelmas/Intracerebral'
+# server_path = Path(path.join('/auto/data2/oelmas/Intracerebral', 'TF_Analyzed'))
 input_path = Path(path.join(Path().resolve().parent, 'Data', 'TF_Analyzed'))
 output_path = Path(path.join(Path().resolve().parent, 'Results'))
 
@@ -85,6 +98,9 @@ else:
     lead_df = read_data(subject_paths[0])
     lead_df.to_pickle(file)
 
+param_grid = {'C': [0.01, 0.1, 1, 10, 100],
+             'gamma': [0.001, 0.01, 0.1]}
+
 # Classifier for the decoding
 clf = make_pipeline(StandardScaler(), svm.SVC())
 
@@ -101,7 +117,7 @@ for subject_no, subject in enumerate(lead_df.subject_name.unique()):
         # to use scaling
         # lead_result_dict = decode_each_lead(df, clf=make_pipeline(StandardScaler(), svm.SVC()))
         # To use LDA
-        lead_result_dict = decode_each_lead(df, clf=clf)
+        lead_result_dict = decode_each_lead(df, clf=clf, grid_search=True, param_grid=param_grid)
         for comb, result in lead_result_dict.items():
             classification_results_dict["subject"].append(subject)
             classification_results_dict["lead"].append(lead)
