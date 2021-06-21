@@ -56,7 +56,6 @@ def binary_action_category_decoder(x, y, cv, clf, grid_search=False, param_grid=
         y = y_test
 
     # Permutation test
-    # TODO: change n_permutations to a higher value when running on server
     score, perm_scores, p_value = permutation_test_score(
         clf, x, y, scoring="accuracy", cv=cv, n_permutations=100, n_jobs=1)
 
@@ -74,6 +73,8 @@ def decode_lead(power_arr, cv, clf, grid_search=False, param_grid=None):
         Data belonging to a subject
     """
 
+    lead_decoding_results = []
+
     # Run classification for each of the combinations e.g. Body vs Per ...
     for ac_pair in combinations(action_categories, 2):
         # Indices of the trials belonging to the first or second action category
@@ -87,26 +88,27 @@ def decode_lead(power_arr, cv, clf, grid_search=False, param_grid=None):
         x = only_ac_pair_arr[:, POWER_IDX].tolist()             # power
         y = only_ac_pair_arr[:, ACTION_CLASS_INDEX].tolist()    # action class
 
-        score, perm_scores, p_value = binary_action_category_decoder(x, y, cv, clf, grid_search, param_grid)
+        score, _, p_value = binary_action_category_decoder(x, y, cv, clf, grid_search, param_grid)
 
         subject = power_arr[0, SUBJECT_NAME_INDEX]
         lead = power_arr[0, LEAD_INDEX]
+        res = [subject,
+               lead,
+               ac_pair,
+               score,
+               p_value,
+               len(x)  # number of trials
+               ]
 
-        return [subject,
-                lead,
-                ac_pair,
-                score,
-                perm_scores,
-                p_value,
-                len(x)  # number of trials
-                ]
+        lead_decoding_results.append(res)
+    return lead_decoding_results
 
 
 def log_result(result):
     # This is called whenever decode_each_lead returns a result.
     # result_list is modified only by the main process, not the pool workers.
-    classification_results_list.append(result)
-    print("Lead ", result[1], " is finished!")
+    classification_results_list.extend(result)
+    print("Lead ", result[0][1], " is finished!")
 
 
 def mp_decode(entire_data_arr):
@@ -162,13 +164,12 @@ if __name__ == '__main__':
     mp_decode(lead_arr)
 
     classification_results_df = pd.DataFrame.from_records(classification_results_list,
-                                                          columns=["subject",
-                                                                   "lead",
-                                                                   "classification_type",
-                                                                   "accuracy",
-                                                                   "permutation scores",
-                                                                   "p_value",
-                                                                   "n_trials"
+                                                          columns=["Subject",
+                                                                   "Lead",
+                                                                   "Classification_type",
+                                                                   "Accuracy",
+                                                                   "P_value",
+                                                                   "N_trials"
                                                                    ])
     classification_results_file = output_path / 'classification_results_df_scale_svm.pkl'
     classification_results_df.to_pickle(str(classification_results_file))
