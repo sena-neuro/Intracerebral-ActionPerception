@@ -7,6 +7,8 @@ import scipy.io
 import re
 from collections import defaultdict
 import pandas as pd
+from pathlib import Path
+import multiprocessing as mp
 
 # Mapping from condition to label TENTATIVE
 event_code_to_action_category_map = {
@@ -15,6 +17,7 @@ event_code_to_action_category_map = {
     "7": "Interpersonal",
 }
 
+all_subjects_dict = defaultdict(list)
 
 def read_data(subject_path):
     """
@@ -112,5 +115,37 @@ def read_data(subject_path):
                 lead_dict["action_category"].extend(labels)
                 lead_dict["power"].extend(data_vectors)
 
-    lead_df = pd.DataFrame.from_dict(lead_dict)
-    return lead_df
+    return lead_dict
+
+
+def log_result(subject_dict):
+    # This is called whenever read_data returns a result.
+    # all_subjects_dict is modified only by the main process, not the pool workers.
+    all_subjects_dict["subject_name"].extend(subject_dict["subject_name"])
+    all_subjects_dict["lead"].extend(subject_dict["lead"])
+    all_subjects_dict["action_category"].extend(subject_dict["action_category"])
+    all_subjects_dict["power"].extend(subject_dict["power"])
+
+
+if __name__ == '__main__':
+
+    # Using lead data map, we can do a classification for each lead Input path
+    parent_path = Path('/auto/data2/oelmas/Intracerebral')
+    input_path = parent_path / 'Data' / 'TF_Analyzed'
+    output_path = parent_path / 'Results'
+
+    # For server the input and output paths will
+    subject_paths = [x for x in input_path.iterdir() if x.is_dir()]
+
+    out_file = output_path / 'all_subjects_data.pkl'
+
+    pool = mp.Pool(mp.cpu_count() - 1)
+
+    for s_path in subject_paths:
+        pool.apply_async(read_data, args=(s_path, ), callback=log_result)
+
+    pool.close()
+    pool.join()
+
+    all_subjects_df = pd.DataFrame.from_dict(all_subjects_dict)
+    all_subjects_df.to_pickle(out_file)
