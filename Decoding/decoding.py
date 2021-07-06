@@ -6,7 +6,6 @@ Created on Mon May  3 12:42:59 2021
 @author: Sena Er github: sena-neuro
 """
 from sklearn import svm
-from Decoding.read_data import read_data
 from pathlib import Path
 from sklearn.model_selection import GridSearchCV, StratifiedKFold
 import pandas as pd
@@ -14,9 +13,9 @@ from itertools import combinations
 from sklearn.model_selection import permutation_test_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 import multiprocessing as mp
 import numpy as np
+import datetime
 
 # Mapping from condition to label
 event_code_to_action_category_map = {
@@ -25,7 +24,8 @@ event_code_to_action_category_map = {
     "7": "Interpersonal",
 }
 action_categories = [ac for ac in event_code_to_action_category_map.values()]
-classification_results_list = []
+current_subject_decoding_results_list = []
+current_subject = None
 
 SUBJECT_NAME_INDEX = 0
 LEAD_INDEX = 1
@@ -44,6 +44,7 @@ def binary_action_category_decoder(x, y, cv, clf, grid_search=False, param_grid=
     :keyword y : Any
         action category
     """
+    params = clf.get_params()
     if grid_search:
         search = GridSearchCV(clf,
                               param_grid=param_grid,
@@ -51,12 +52,13 @@ def binary_action_category_decoder(x, y, cv, clf, grid_search=False, param_grid=
                               n_jobs=1)
         search.fit(x, y)
         clf = search.best_estimator_
+        params = search.best_params_
 
     # Permutation test
     score, perm_scores, p_value = permutation_test_score(
         clf, x, y, scoring="accuracy", cv=cv, n_permutations=100, n_jobs=1)
 
-    return score, perm_scores, p_value
+    return score, p_value, params
 
 
 def decode_lead(power_arr, cv, clf, grid_search=False, param_grid=None):
@@ -87,13 +89,16 @@ def decode_lead(power_arr, cv, clf, grid_search=False, param_grid=None):
         x = only_ac_pair_arr[:, POWER_IDX].tolist()  # power
         y = only_ac_pair_arr[:, ACTION_CLASS_INDEX].tolist()  # action class
 
-        score, _, p_value = binary_action_category_decoder(x, y, cv, clf, grid_search, param_grid)
+        score, p_value, params = binary_action_category_decoder(x, y, cv, clf, grid_search, param_grid)
+        param_c = params['svc__C']
 
         lead_decoding_results[ac_pair_idx] = [subject,
                                               lead,
                                               ac_pair,
                                               score,
                                               p_value,
+                                              clf,
+                                              param_c,
                                               len(x)  # number of trials
                                               ]
         ac_pair_idx = ac_pair_idx + 1
@@ -104,70 +109,67 @@ def decode_lead(power_arr, cv, clf, grid_search=False, param_grid=None):
 def log_result(result):
     # This is called whenever decode_each_lead returns a result.
     # result_list is modified only by the main process, not the pool workers.
-    classification_results_list.extend(result)
+    current_subject_decoding_results_list.extend(result)
 
 
-def mp_decode(entire_data_arr):
-    pool = mp.Pool(mp.cpu_count()-1)
+def mp_decode(power_arr):
+    pool = mp.Pool(mp.cpu_count() - 1)
 
     # Classifier for the decoding
-    clf = Pipeline([('scale', StandardScaler()),
-                    ('clf', svm.SVC())])
-    # clf = LinearDiscriminantAnalysis()
+    clf = Pipeline([(StandardScaler()),
+                    (svm.SVC(kernel='linear'))])
 
     # Parameter grid for grid search
-    param_grid = {'clf__C': [0.01, 0.1, 1, 10, 100],
-                  'clf__gamma': [0.001, 0.01, 0.1]}
+    param_grid = {'svc__C': [2.5e-05, 5e-05, 7.5e-05, 1e-04, 2.5e-04, 5e-04]}
 
     gs = True
 
     # Create Cross validation
     cv = StratifiedKFold(n_splits=10, shuffle=True)
 
-    # We do decoding on each lead of each subject INDEPENDENTLY
+    # We do decoding on each lead INDEPENDENTLY
     # They can run at the same time; thus, we use multiprocessing
     # We use pool because they can run asynchronously
 
-    all_unique_subjects = np.unique(entire_data_arr[:, SUBJECT_NAME_INDEX])
-    all_unique_leads = np.unique(entire_data_arr[:, LEAD_INDEX])
-    for subject_no, subject in enumerate(all_unique_subjects):
-        for lead_no, lead in enumerate(all_unique_leads):
-            subj_idx = entire_data_arr[:, SUBJECT_NAME_INDEX] == subject
-            lead_idx = entire_data_arr[:, LEAD_INDEX] == lead
-            single_lead_single_subject_arr = entire_data_arr[subj_idx & lead_idx]
-            pool.apply_async(decode_lead,
-                             args=(single_lead_single_subject_arr, cv, clf, gs, param_grid),
-                             callback=log_result)
+    all_unique_leads = np.unique(power_arr[:, LEAD_INDEX])
+    for lead_no, lead in enumerate(all_unique_leads):
+        lead_idx = power_arr[:, LEAD_INDEX] == lead
+        single_lead_arr = power_arr[lead_idx]
+        pool.apply_async(decode_lead,
+                         args=(single_lead_arr, cv, clf, gs, param_grid),
+                         callback=log_result)
     pool.close()
     pool.join()
 
 
 if __name__ == '__main__':
     # Using lead data map, we can do a classification for each lead Input path
-    parent_path = Path().resolve().parent
-    input_path = parent_path / 'Data' / 'TF_Analyzed'
-    output_path = parent_path / 'Results'
+    parent_path = Path('/auto/data2/oelmas/Intracerebral')
+    input_path = parent_path / 'Data' / 'Power_DataFrames'
+    output_path = parent_path / 'Results' / 'SubjectDecodingResults'
 
-    # For server the input and output paths will
-    subject_paths = [x for x in input_path.iterdir() if x.is_dir()]
+    date = datetime.datetime.today().strftime('%d-%m')
 
-    out_file = output_path / 'lead_df.pkl'
-    if Path(out_file).exists():
-        lead_df = pd.read_pickle(out_file)
-    else:
-        lead_df = read_data(subject_paths[0])
-        lead_df.to_pickle(out_file)
+    subject_pkl = [x for x in input_path.iterdir() if x.match('*.pkl')]
+    for s_pkl in subject_pkl:
+        subject_df = pd.read_pickle(s_pkl)
+        subject_arr = subject_df.to_numpy()
 
-    lead_arr = lead_df.to_numpy()
-    mp_decode(lead_arr)
+        # global current_subject
+        current_subject = subject_arr[0, SUBJECT_NAME_INDEX]
+        mp_decode(subject_arr)
+        subject_decoding_results_df = pd.DataFrame.from_records(current_subject_decoding_results_list,
+                                                                columns=["subject",
+                                                                         "lead",
+                                                                         "classification_type",
+                                                                         "accuracy",
+                                                                         "p_value",
+                                                                         "clf",
+                                                                         "param_C",
+                                                                         "n_trials"
+                                                                         ])
+        current_subject_decoding_results_list = []
 
-    classification_results_df = pd.DataFrame.from_records(classification_results_list,
-                                                          columns=["subject",
-                                                                   "lead",
-                                                                   "classification_type",
-                                                                   "accuracy",
-                                                                   "p_value",
-                                                                   "n_trials"
-                                                                   ])
-    classification_results_file = output_path / '22jun_classification_results_svm_GS_final.pkl'
-    classification_results_df.to_pickle(str(classification_results_file))
+        file_name = date + '_' + current_subject + '_decoding_results.pkl'
+        subject_decoding_results_pkl = str(output_path / file_name)
+        subject_decoding_results_df.to_pickle(subject_decoding_results_pkl)
