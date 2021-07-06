@@ -8,6 +8,12 @@
 *.xlsx
 *.pkl
 
+Decoding/BetterThanRandom/
+Decoding/__pycache__/
+PaintFiles
+/Preprocessing/findRejDataLog
+
+
 Data/
 Data/*
 Decoding/*.xslx
