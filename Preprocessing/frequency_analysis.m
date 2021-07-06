@@ -2,17 +2,24 @@ clc;
 clear variables;
 close all;
 
-diary findRejDataLog
+diary frequency_analysis_log
 filesep = '/';
 
-currentDir = pwd;
+all_paths = genpath('/auto/k2/oelmas/eeglab2019_1-2');
+addpath(all_paths);
+
+
+% currentDir = pwd;
 
 % Input path
-rejPath = fullfile(currentDir, '..', 'Data', 'ArtifactRejected', filesep);
+direc = '/auto/data2/oelmas/Intracerebral';
+rejPath = fullfile(direc, 'Data', 'ArtifactRejected', filesep);
+% rejPath = fullfile(currentDir, '..', 'Data', 'ArtifactRejected', filesep);
 
 
 % Output path
-outPath = fullfile(currentDir, '..', 'Data', 'TF_Analyzed', filesep);
+outPath = fullfile(direc, 'Data', 'TF_Analyzed', filesep);
+% outPath = fullfile(currentDir, '..', 'Data', 'TF_Analyzed', filesep);
 
 lowTbas = -500; % baseline period lower end (ms)
 highTbas = 0; % baseline period higher end (ms)
@@ -20,7 +27,7 @@ highTbas = 0; % baseline period higher end (ms)
 
 % Get subject names
 rejFolders = dir(rejPath);
-subjNames = cell(40,1);
+subjNames = {};
 subjectNumber=0;
 
 % Eliminate files with . and find subject names
@@ -32,55 +39,59 @@ for i=1:length(rejFolders)
     end
 end
 
-rejFlist=cell(subjectNumber,1);
-rejFnames=cell(subjectNumber,1);
+rejFlist={};
+rejFnames={};
+ind=1;
 for i=1:subjectNumber
-    
-    fileList = dir([strcat(rejPath,subjNames{i}) filesep strcat(subjNames{i},'*.mat')]); % specify the subject .mat files
+
+    fileList = dir([strcat(rejPath,subjNames{i}) filesep strcat('*.mat')]); % specify the subject .mat files
     for a = 1:length(fileList)
-        rejFlist{a,1} = strcat(rejPath,subjNames{i}, filesep, fileList(a,1).name);
-        rejFnames{a,1} = fileList(a,1).name;
+        rejFlist{ind,1} = strcat(rejPath,subjNames{i}, filesep, fileList(a,1).name);
+        rejFnames{ind,1} = fileList(a,1).name;
+        ind=ind+1;
     end
 end
-
 % Frequency analysis for each file in the filelist
 for files=1:length(rejFlist)
-   
+
     % load the artifact rejected data
-    rejData = load(rejFlist{files}).D;
+    ar = load(rejFlist{files});
+    rejData = ar.D;
 
     %%%%%%%%%%%%%%%%%%%% Run time-frequency analysis on selected files %%%%%%%%%%%%%%%%%%%%
     ChanList=cell(length(rejData),1);
-    for ch=1:length(rejData)
-        if length(rejData{ch}.ChanType) == 4 && length(rejData{ch}.ChanName) < 5 % if the channel type is iEEG
-            ChanList{ch,1} = rejData{ch,1}.ChanName;
-            T{1,1}{ch} = rejData{ch,1}.ChanType;
-        end
-    end
+    eegChanIdx = 1;
     cond = '';
 
+    str = rejFnames{files};
+    expression = '_condition_\d\d\d';
+    [startIndex, endIndex] = regexp(str, expression);
+    cond = str(endIndex-2:endIndex); % get the name of the condition
+
     us_idx = find(rejFnames{files} == '_'); % find the indices where there is '_' character
-    cond = rejFnames{files}(us_idx(3)+1:us_idx(4)-1); % get the name of the condition
-    
     fnmbase = rejFnames{files}(1:us_idx(1)-1); % get the name of the subjects
     outfnm = strcat(fnmbase,'_condition_',cond,'_seg_AR_tf.mat'); % combine the name of the subject with the condition above
-    
-    disp(strcat('Processing participant: ' ,fnmbase,' condition: ',cond)) 
-    for i = 1:length(T{1,1})
-        chans(i) = i;
+
+    if (exist(strcat(outPath,fnmbase,filesep,outfnm)))
+        continue;
     end
-    
-    for j = 1:length(chans) % run time-freq on all selected channels
-        if isfield(rejData{chans(j),1},'Artifact_Removed_Wavelet_freq_flag')
-            disp(strcat('Chan',chans(j),' ',' has already been processed by wavelet analysis'));
+
+    disp(strcat('Processing participant: ' ,fnmbase,' condition: ',cond))
+
+    for j = 1:length(rejData) % run time-freq on all selected channels
+        if ~(strcmp(rejData{j}.ChanType, 'iEEG') && length(rejData{j}.ChanName) < 5) % if the channel type is iEEG
+            continue;
+        end
+        if isfield(rejData{j,1},'AR_tfX')
+            disp(strcat('Chan',j,' ',' has already been processed by wavelet analysis'));
         else
             % Change this to semilog 50 steps from 5 to 152
             % Check all parameterss from Marije paper
-            [a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,fullg] = newtimef_pietro(...
-                double(rejData{chans(j),1}.Segments2),...   % data in segments
-                size(rejData{chans(j),1}.Segments2,1),...   % time points for segments
-                rejData{chans(j),1}.TWin,...                % time range
-                rejData{chans(j),1}.fs,...                  % sampling rate
+            [ersp,itc,powbase,times,freqs,erspboot,itcboot,tfdata] = newtimef(...
+            double(rejData{j,1}.Segments2),...   % data in segments
+                size(rejData{j,1}.Segments2,1),...   % time points for segments
+                rejData{j,1}.TWin,...                % time range
+                rejData{j,1}.fs,...                  % sampling rate
                 4,...                                 % number of cycles %'timesout',-50,...    % downsampling factor for wavelet panel NORMALMENTE -10!!! in BioPhy-20 %'scale','log',...     % log or linear per i dB
                 'plotersp','off',...  % no plot for ersp panel
                 'plotitc','off',...   % no plot for itc panel
@@ -89,31 +100,27 @@ for files=1:length(rejFlist)
                 'freqscale','log',... %'linear' or log'
                 'wletmethod','dftfilt3',...
                 'rmerp','off',...% erp removed to work on the inter-trial coherence
-                'baseline',[-500 0], ...  %);  
-                'alpha',0.05,...      % significance threshold
-                'mcorrect','fdr');    % multiple comparison correction ('fdr' or 'none')
+                'baseline',[-500 0],...
+                 'verbose','off');
 
             % Put the new fields
-            rejData{chans(j),1}.Artifact_Removed_Wavelet_freq_flag = 1; % create a subfield in D that indicates that TF analysis was run
-            rejData{chans(j),1}.AR_TWavbaseline=[lowTbas highTbas];
-            rejData{chans(j),1}.AR_ersp = a1;
-            rejData{chans(j),1}.AR_itc = a2;
-            rejData{chans(j),1}.AR_powbase = a3;
-            rejData{chans(j),1}.AR_times = a4;
-            rejData{chans(j),1}.AR_freqs = a5;
-            rejData{chans(j),1}.AR_erspboot = a6;
-            rejData{chans(j),1}.AR_itcboot = a7;
-            rejData{chans(j),1}.AR_tfX = a8;
-            rejData{chans(j),1}.AR_maskersp = a9;
-            rejData{chans(j),1}.AR_maskitc = a10;
-            
+            rejData{j,1}.Artifact_Removed_Wavelet_freq_flag = 1; % create a subfield in D that indicates that TF analysis was run
+            rejData{j,1}.AR_TWavbaseline=[lowTbas highTbas];
+            rejData{j,1}.AR_ersp = ersp;
+            rejData{j,1}.AR_itc = itc;
+            rejData{j,1}.AR_powbase = powbase;
+            rejData{j,1}.AR_times = times;
+            rejData{j,1}.AR_freqs = freqs;
+            rejData{j,1}.AR_erspboot = erspboot;
+            rejData{j,1}.AR_itcboot = itcboot;
+            rejData{j,1}.AR_tfX = tfdata;
+
             % Calculate power for this channel
-            tfx = rejData{chans(j),1}.AR_tfX;
+            tfx = rejData{j,1}.AR_tfX;
             if ~isempty(tfx)
-                power = abs(tfx);
-                
-                % save the power infomation on new field in the struct
-                rejData{chans(j),1}.AR_power = power;
+             % save the power infomation on new field in the struct
+                rejData{j,1}.AR_power = abs(tfx);
+
             end
         end
     end
@@ -123,6 +130,6 @@ for files=1:length(rejFlist)
     end
     D = rejData;
     save(strcat(outPath,fnmbase,filesep,outfnm),'D')
-    clear rejData ChanList T chans SignList SL_idx %check
-    fclose('all');
+    clear ar rejData ChanList chans SignList SL_idx %check
 end
+
