@@ -2,7 +2,7 @@ clc;
 clear variables;
 close all;
 
-diary frequency_analysis_log
+diary findRejDataLog
 filesep = '/';
 
 all_paths = genpath('/auto/k2/oelmas/eeglab2019_1-2');
