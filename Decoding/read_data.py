@@ -81,7 +81,7 @@ def read_data(subject_path):
 
             # Check if the lead is iEEG There are some probable unnecesssary channels here e.g EOG2 DEL4?
             # If the AR_tfX has a size 0f 0 then all trials must have been rejected.
-            if lead_data.ChanType[0] == "iEEG" and lead_data.AR_tfX.size != 0 and lead_name_correct:
+            if lead_data.ChanType[0] == "iEEG" and lead_name_correct and lead_data.AR_tfX.size != 0:
 
                 # Get the power information (50x200xtrial)
                 power = lead_data.AR_power
@@ -132,7 +132,10 @@ if __name__ == '__main__':
     subject_paths = [x for x in input_path.iterdir() if x.is_dir()]
 
     for s_path in subject_paths:
-        pool.apply_async(read_data, args=(s_path, ))
+        file_name = s_path.name + '_power_data.pkl'
+        out_file = output_path  / file_name
+        if not out_file.exists():
+            pool.apply_async(read_data, args=(s_path, ))
 
     pool.close()
     pool.join()
