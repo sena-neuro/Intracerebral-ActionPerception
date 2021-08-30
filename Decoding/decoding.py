@@ -44,7 +44,7 @@ def binary_action_category_decoder(x, y, cv, clf, grid_search=False, param_grid=
     :keyword y : Any
         action category
     """
-    params = clf.get_params()
+
     if grid_search:
         search = GridSearchCV(clf,
                               param_grid=param_grid,
@@ -53,6 +53,9 @@ def binary_action_category_decoder(x, y, cv, clf, grid_search=False, param_grid=
         search.fit(x, y)
         clf = search.best_estimator_
         params = search.best_params_
+    else:
+        # I didn't really checked this but I don't think it would break something
+        params = clf.get_params()
 
     # Permutation test
     score, perm_scores, p_value = permutation_test_score(
@@ -90,7 +93,7 @@ def decode_lead(power_arr, cv, clf, grid_search=False, param_grid=None):
         y = only_ac_pair_arr[:, ACTION_CLASS_INDEX].tolist()  # action class
 
         score, p_value, params = binary_action_category_decoder(x, y, cv, clf, grid_search, param_grid)
-        param_c = params['svc__C']
+        param_C = params['clf__C']
 
         lead_decoding_results[ac_pair_idx] = [subject,
                                               lead,
@@ -98,7 +101,7 @@ def decode_lead(power_arr, cv, clf, grid_search=False, param_grid=None):
                                               score,
                                               p_value,
                                               clf,
-                                              param_c,
+                                              param_C,
                                               len(x)  # number of trials
                                               ]
         ac_pair_idx = ac_pair_idx + 1
@@ -116,18 +119,18 @@ def mp_decode(power_arr):
     pool = mp.Pool(mp.cpu_count() - 1)
 
     # Classifier for the decoding
-    clf = Pipeline([(StandardScaler()),
-                    (svm.SVC(kernel='linear'))])
+    clf = Pipeline([('scale', StandardScaler()),
+                    ('clf', svm.SVC(kernel='linear'))])
 
     # Parameter grid for grid search
-    param_grid = {'svc__C': [2.5e-05, 5e-05, 7.5e-05, 1e-04, 2.5e-04, 5e-04]}
+    param_grid = {'clf__C': [2.5e-05, 5e-05, 7.5e-05, 1e-04, 2.5e-04, 5e-04]}
 
     gs = True
 
     # Create Cross validation
     cv = StratifiedKFold(n_splits=10, shuffle=True)
 
-    # We do decoding on each lead INDEPENDENTLY
+    # We do decoding on each lead of each subject INDEPENDENTLY
     # They can run at the same time; thus, we use multiprocessing
     # We use pool because they can run asynchronously
 
@@ -149,27 +152,32 @@ if __name__ == '__main__':
     output_path = parent_path / 'Results' / 'SubjectDecodingResults'
 
     date = datetime.datetime.today().strftime('%d-%m')
-
     subject_pkl = [x for x in input_path.iterdir() if x.match('*.pkl')]
+    out_pkls = [x for x in output_path.iterdir() if x.match('*.pkl')]
+
     for s_pkl in subject_pkl:
         subject_df = pd.read_pickle(s_pkl)
         subject_arr = subject_df.to_numpy()
 
         # global current_subject
         current_subject = subject_arr[0, SUBJECT_NAME_INDEX]
-        mp_decode(subject_arr)
-        subject_decoding_results_df = pd.DataFrame.from_records(current_subject_decoding_results_list,
-                                                                columns=["subject",
-                                                                         "lead",
-                                                                         "classification_type",
-                                                                         "accuracy",
-                                                                         "p_value",
-                                                                         "clf",
-                                                                         "param_C",
-                                                                         "n_trials"
-                                                                         ])
-        current_subject_decoding_results_list = []
 
-        file_name = date + '_' + current_subject + '_decoding_results.pkl'
-        subject_decoding_results_pkl = str(output_path / file_name)
-        subject_decoding_results_df.to_pickle(subject_decoding_results_pkl)
+        # If the subject is decoded before on any date do not decode it again
+        pattern = '*' + current_subject + '*'
+        if not any(out_pkl.match(pattern) for out_pkl in out_pkls):
+            mp_decode(subject_arr)
+            subject_decoding_results_df = pd.DataFrame.from_records(current_subject_decoding_results_list,
+                                                                    columns=["subject",
+                                                                             "lead",
+                                                                             "classification_type",
+                                                                             "accuracy",
+                                                                             "p_value",
+                                                                             "clf",
+                                                                             "param_C",
+                                                                             "n_trials"
+                                                                             ])
+            current_subject_decoding_results_list = []
+
+            file_name = date + '_' + current_subject + '_decoding_results.pkl'
+            subject_decoding_results_pkl = str(output_path / file_name)
+            subject_decoding_results_df.to_pickle(subject_decoding_results_pkl)
