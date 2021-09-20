@@ -2,19 +2,16 @@
 
 @author: Sena Er (github: sena-neuro) & Huseyin Orkun Elmas
 """
-import numpy as np
+import h5py
 import scipy.io
 import re
-from collections import defaultdict
-import pandas as pd
 from pathlib import Path
-import multiprocessing as mp
 
 # Mapping from condition to label
 event_code_to_action_category_map = {
-    "1": "Skin-Displacing",
-    "4": "Manipulative",
-    "7": "Interpersonal",
+    "1": "SD",  # Skin-displacing
+    "4": "MN",  # Manipulative
+    "7": "IP",  # Interpersonal
 }
 
 # Using lead data map, we can do a classification for each lead Input path
@@ -23,59 +20,27 @@ input_path = parent_path / 'Data' / 'TF_Analyzed'
 output_path = parent_path / 'Data' / 'Power_DataFrames'
 
 
-def read_data(subject_path):
-    """
-    Reads the mat files (each belonging to a condition) inside the subject's folder.
-    Makes a Pandas DataFrame (lead_df) belonging to the subject
+def mat_to_hdf(subject_path: Path):
 
-    :returns lead_df
-        lead_df has the columns: subject_name, lead, action_category, power
-
-    :keyword subject_path -- Path of the subject's folder
-    """
-
-    # lead_dict: A dictionary to keep datapoint and labels associated with each lead
-    #   Each key is the name of the lead and each value is a dictionary with data and labels.
-    #   These lists have the same orders (labels are matching the data).
-    lead_dict = defaultdict(list)
-
-    # Get the names of the condition files in the subjects folder
-
+    # Create and/or open HDF5 in append mode
+    file = h5py.File('power_19sep_13_30.hdf5', 'a')
+    subject_name = subject_path.stem
     condition_paths = [x for x in subject_path.iterdir() if x.match('*.mat')]
 
-    # Read each condition file and create label
     for condition_path in condition_paths:
-
         condition_mat_struct = scipy.io.loadmat(condition_path, struct_as_record=False)["D"]
-        # n_leads = len(condition_mat_struct)
-        # Get the codes written in the subject file name and seperated with _
 
-        code_list = condition_path.stem.split("_")
-        event_code = code_list[2]
-        subject_name = code_list[0]
+        ac_code = re.search(r"\d", condition_path.stem).group()
+        action_category = event_code_to_action_category_map[ac_code]
 
-        # Find the indices of underscore character
-        # The condition label is between the 2nd and 3rd underscores
-        # Maybe get only the used part of the label but we can still use only a part of this in next steps
-        action_category = event_code_to_action_category_map[event_code[0]]
+        apostrophe = re.compile("(')")
 
-        # We will do the classification for each lead, run a loop for all leads
-        # We need to scan all files of a subject to be able to start classification since different files
-        # include different conditions
         for idx, lead in enumerate(condition_mat_struct):
-
-            # Data points
-            data_vectors = []
-
-            # Labels
-            labels = []
 
             # Get the data in the lead
             lead_data = lead[0][0][0]
-
             # Get lead name
             lead_name = lead_data.ChanName[0]
-
             # Check if the lead name follows the format and isnt one of the unnecessary leads
             lead_name_correct = re.match("([A-Z]'?(([0-9]+'?)|[A-Z]?)$)", lead_name)
 
@@ -84,58 +49,45 @@ def read_data(subject_path):
             if lead_data.ChanType[0] == "iEEG" and lead_name_correct and lead_data.AR_tfX.size != 0:
 
                 # Get the power information (50x200xtrial)
-                power = lead_data.AR_power
+                power = lead_data.AR_power  # (50, 200, n_trial)
+                times = lead_data.AR_times[0]  # (200,)
+                # freqs = lead_data.AR_freqs[0]  # (50,)
 
-                # Get number rof trials, if number of trials is one then tte power array will have 2 dims
-                no_trials = power.shape[2] if len(power.shape) == 3 else 1
+                # We can't have names with apostrophes so
+                # change the apostrophe with an underscore
+                lead_name_no_ap = apostrophe.sub('_', lead_name)
 
-                # If there are more than one trials, convert each trial to an element of the list
-                if no_trials > 1:
+                # Create a HDF5 group with the subject and the lead
+                key1 = subject_name + '/' + lead_name_no_ap
+                # Open the group if it is not created before create it first
+                group = file.require_group(key1)
+                n_trials = power.shape[2] if len(power.shape) == 3 else 1
 
-                    no_trials = power.shape[2]
-                    # Add the power to the data points list
-                    # If there is more than one trial left
-                    # then add the trials as list elements
-                    temp = np.hsplit(power.reshape(-1, power.shape[-1]), no_trials)
+                for time_idx, time in enumerate(times):
+                    power_t = power[:, time_idx]
+                    key2 = 't_' + str(time_idx) + '/' + action_category
 
-                    # Squeeze each trial
-                    for i in range(len(temp)):
-                        temp[i] = temp[i].squeeze()
+                    # The key is not in the group keys
+                    # First time the key is formed
+                    # Dataset is created
+                    if key2 not in group.keys():
+                        dset = group.create_dataset(key2,
+                                                    data=power_t,
+                                                    maxshape=(50, 64)
+                                                    )
+                    # The key is in the group keys.
+                    # Dataset has been already created
+                    # Resize the dataset accordingly
+                    # to append the new power array
+                    else:
+                        dset = group[key2]
+                        dset.resize((50, dset.shape[1] + n_trials))
+                        dset[:, -n_trials:] = power_t
 
-                    data_vectors.extend(temp)
-                    # Add condition as label and add it as many times as the power has trials
-                    # We can also use the conditions first character here for the class
-                    # since 1 is Skin-Displacing, 4 is Manipulative and 7 is Interpersonal
-                    labels.extend([action_category] * no_trials)
-                else:
-                    # If there is only one trial then the shape will be 2d,
-                    # add it as one element to the list
-                    data_vectors.append(power.flatten())
-                    labels.append(action_category)
-
-                # Save the leads data and labels in a map
-                lead_dict["subject_name"].extend([subject_name] * no_trials)
-                lead_dict["lead"].extend([lead_name] * no_trials)
-                lead_dict["action_category"].extend(labels)
-                lead_dict["power"].extend(data_vectors)
-
-    subject_df = pd.DataFrame.from_dict(lead_dict)
-    file_name = subject_name + '_power_data.pkl'
-    out_file = str(output_path / file_name)
-    subject_df.to_pickle(out_file)
+    file.flush()
+    file.close()
 
 
 if __name__ == '__main__':
-
-    pool = mp.Pool(mp.cpu_count() - 1)
-
-    subject_paths = [x for x in input_path.iterdir() if x.is_dir()]
-
-    for s_path in subject_paths:
-        file_name = s_path.name + '_power_data.pkl'
-        out_file = output_path  / file_name
-        if not out_file.exists():
-            pool.apply_async(read_data, args=(s_path, ))
-
-    pool.close()
-    pool.join()
+    p = Path('/Users/senaer/Codes/CCNLab/Intracerebral-ActionPerception/Data/TF_Analyzed/BenedettiL')
+    mat_to_hdf(p)
