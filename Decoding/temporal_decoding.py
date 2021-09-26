@@ -1,5 +1,3 @@
-from itertools import combinations
-
 import h5py
 import numpy as np
 
@@ -7,15 +5,8 @@ import numpy as np
 from sklearn import svm
 from sklearn.model_selection import permutation_test_score
 
-event_code_to_action_category_map = {
-    "1": "SD",      # Skin-displacing
-    "4": "MN",      # Manipulative
-    "7": "IP",      # Interpersonal
-}
-action_categories = [ac for ac in event_code_to_action_category_map.values()]
 
-
-def binary_action_category_decoder(x, y, clf=svm.SVC(kernel='linear')):
+def decode_action_class(x, y, clf=svm.SVC(kernel='linear')):
     """
     Pairwise action category decoding
 
@@ -27,32 +18,33 @@ def binary_action_category_decoder(x, y, clf=svm.SVC(kernel='linear')):
         action category
     """
     # Permutation test
+    # param_grid=param_grid, n_jobs=1
     clf.fit(x, y)
-    score = None
-    p_value = None
 
-    # score, perm_scores, p_value = permutation_test_score(
-    #    clf, x, y, scoring="accuracy", n_permutations=3, n_jobs=1)
+    score, p_value = permutation_test_score(clf, x, y, scoring="accuracy", n_permutations=3, n_jobs=1)
 
     return score, p_value
 
 
-file = h5py.File('/Users/senaer/Codes/CCNLab/Intracerebral-ActionPerception/Decoding/power_19sep_13_30.hdf5', 'r')
+def process_action_class_combinations(node, ac1, ac2):
+    pow1 = node[ac1][:]
+    pow2 = node[ac2][:]
 
-for subject in file:
-    for lead in file[subject]:
-        for time in file[subject][lead]:
-            group = file[subject][lead][time]
+    x = np.append(pow1, pow2, axis=0)
+    y = [ac1] * len(pow1) + [ac2] * len(pow2)
 
-            for ac_pair in combinations(action_categories, 2):
-                print('ac_pair: ', ac_pair)
-                pow1 = group[ac_pair[0]][:].transpose()
-                pow2 = group[ac_pair[1]][:].transpose()
-                # sd_pow = group['SD'][:].transpose()
-                x = np.append(pow1, pow2, axis=0)
-                y = [ac_pair[0]] * len(pow1) + [ac_pair[1]] * len(pow2)
+    # classify
+    score, p_value = decode_action_class(x, y)
 
-                # classify
-                score, p_value = binary_action_category_decoder(x, y)
-                print(score, ', ', p_value)
+
+def visitor_func(name, node):
+    if isinstance(node, h5py.Group) and '/t_' in name:
+        process_action_class_combinations(node, 'MN', 'IP')
+        process_action_class_combinations(node, 'SD', 'IP')
+        process_action_class_combinations(node, 'MN', 'SD')
+
+
+if __name__ == '__main__':
+    file = h5py.File('/Users/senaer/Codes/CCNLab/Intracerebral-ActionPerception/Decoding/power_19sep_13_30.hdf5', 'r')
+    file.visititems(visitor_func)
 
