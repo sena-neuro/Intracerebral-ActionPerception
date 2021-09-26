@@ -17,13 +17,18 @@ event_code_to_action_category_map = {
 # Using lead data map, we can do a classification for each lead Input path
 parent_path = Path('/auto/data2/oelmas/Intracerebral')
 input_path = parent_path / 'Data' / 'TF_Analyzed'
-output_path = parent_path / 'Data' / 'Power_DataFrames'
+output_path = parent_path / 'Data'
+
+power_hdf_file = str(output_path / 'power_data.hdf5')
 
 
 def mat_to_hdf(subject_path: Path):
+    """
+
+    """
 
     # Create and/or open HDF5 in append mode
-    file = h5py.File('power_19sep_13_30.hdf5', 'a')
+    file = h5py.File(power_hdf_file, 'a')
     subject_name = subject_path.stem
     condition_paths = [x for x in subject_path.iterdir() if x.match('*.mat')]
 
@@ -50,7 +55,7 @@ def mat_to_hdf(subject_path: Path):
 
                 # Get the power information (50x200xtrial)
                 power = lead_data.AR_power  # (50, 200, n_trial)
-                times = lead_data.AR_times[0]  # (200,)
+                # times = lead_data.AR_times[0]  # (200,)
                 # freqs = lead_data.AR_freqs[0]  # (50,)
 
                 # We can't have names with apostrophes so
@@ -58,34 +63,38 @@ def mat_to_hdf(subject_path: Path):
                 lead_name_no_ap = apostrophe.sub('_', lead_name)
 
                 # Create a HDF5 group with the subject and the lead
-                key1 = subject_name + '/' + lead_name_no_ap
+                subject_lead_key = subject_name + '/' + lead_name_no_ap
                 # Open the group if it is not created before create it first
-                group = file.require_group(key1)
+                group = file.require_group(subject_lead_key)
                 n_trials = power.shape[2] if len(power.shape) == 3 else 1
 
-                for time_idx, time in enumerate(times):
-                    power_t = power[:, time_idx]
-                    key2 = 't_' + str(time_idx) + '/' + action_category
+                for time_idx in range(200):
+                    power_t = power[:, time_idx].transpose()    # not tested (26 sep)
+                    time_ac_key = 't_' + str(time_idx) + '/' + action_category
 
                     # The key is not in the group keys
                     # First time the key is formed
                     # Dataset is created
-                    if key2 not in group.keys():
-                        dset = group.create_dataset(key2,
-                                                    data=power_t,
-                                                    maxshape=(50, 64)
-                                                    )
-                    # The key is in the group keys.
-                    # Dataset has been already created
-                    # Resize the dataset accordingly
-                    # to append the new power array
+                    if time_ac_key not in group.keys():
+                        group.create_dataset(time_ac_key,
+                                             data=power_t,
+                                             maxshape=(50, 64)
+                                             )
+
                     else:
-                        dset = group[key2]
-                        dset.resize((50, dset.shape[1] + n_trials))
-                        dset[:, -n_trials:] = power_t
+                        dataset = group[time_ac_key]
+                        dataset.resize((50, dataset.shape[1] + n_trials))
+                        dataset[:, -n_trials:] = power_t
 
     file.flush()
     file.close()
+
+
+def process_each_subject():
+    subject_paths = [x for x in input_path.iterdir() if x.is_dir()]
+
+    for s_path in subject_paths:
+        mat_to_hdf(s_path)
 
 
 if __name__ == '__main__':
