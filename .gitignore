@@ -11,8 +11,8 @@
 Decoding/BetterThanRandom/
 Decoding/__pycache__/
 PaintFiles
-/Preprocessing/findRejDataLog
-
+Preprocessing/findRejDataLog
+Preprocessing/.*
 
 Data/
 Data/*
