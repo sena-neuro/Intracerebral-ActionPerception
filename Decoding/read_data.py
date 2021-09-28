@@ -19,7 +19,7 @@ parent_path = Path('/auto/data2/oelmas/Intracerebral')
 input_path = parent_path / 'Data' / 'TF_Analyzed'
 output_path = parent_path / 'Data'
 
-power_hdf_file = str(output_path / 'power_data.hdf5')
+power_hdf_file = str(output_path / 'BENEDETTI_TEST_power_data.hdf5')
 
 
 def mat_to_hdf(subject_path: Path):
@@ -78,13 +78,13 @@ def mat_to_hdf(subject_path: Path):
                     if time_ac_key not in group.keys():
                         group.create_dataset(time_ac_key,
                                              data=power_t,
-                                             maxshape=(50, 64)
+                                             maxshape=(64, 50)
                                              )
 
                     else:
                         dataset = group[time_ac_key]
-                        dataset.resize((50, dataset.shape[1] + n_trials))
-                        dataset[:, -n_trials:] = power_t
+                        dataset.resize((dataset.shape[1] + n_trials, 50))
+                        dataset[-n_trials:, :] = power_t
 
     file.flush()
     file.close()
@@ -98,5 +98,5 @@ def process_each_subject():
 
 
 if __name__ == '__main__':
-    p = Path('/Users/senaer/Codes/CCNLab/Intracerebral-ActionPerception/Data/TF_Analyzed/BenedettiL')
+    p = input_path / 'BenedettiL'
     mat_to_hdf(p)
