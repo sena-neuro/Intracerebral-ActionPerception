@@ -1,12 +1,19 @@
 import h5py
-import numpy as np
-
-# Mapping from condition to label
 from sklearn import svm
+from sklearn.model_selection import StratifiedKFold
 from sklearn.model_selection import permutation_test_score
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+import numpy as np
+from pathlib import Path
 
 
-def decode_action_class(x, y, clf=svm.SVC(kernel='linear')):
+parent_path = Path('/auto/data2/oelmas/Intracerebral')
+output_path = parent_path / 'Data' / 'Results'
+
+decoding_results_hdf_file = str(output_path / 'TEST_decoding_results.hdf5')
+
+def decode_action_class(x, y):
     """
     Pairwise action category decoding
 
@@ -19,11 +26,17 @@ def decode_action_class(x, y, clf=svm.SVC(kernel='linear')):
     """
     # Permutation test
     # param_grid=param_grid, n_jobs=1
+    # Classifier for the decoding
+    clf = Pipeline([('scale', StandardScaler()),
+                    ('clf', svm.SVC(kernel='linear', C=1e-04))])
+
+    # Create Cross validation
+    cv = StratifiedKFold(n_splits=10, shuffle=True)
+
     clf.fit(x, y)
 
-    score, p_value = permutation_test_score(clf, x, y, scoring="accuracy", n_permutations=3, n_jobs=1)
-
-    return score, p_value
+    score, perm_scores, p_value = permutation_test_score(clf, x, y, scoring="accuracy", n_permutations=3, n_jobs=1)
+    return [score, perm_scores, p_value]
 
 
 def process_action_class_combinations(node, ac1, ac2):
@@ -34,17 +47,23 @@ def process_action_class_combinations(node, ac1, ac2):
     y = [ac1] * len(pow1) + [ac2] * len(pow2)
 
     # classify
-    score, p_value = decode_action_class(x, y)
+    return decode_action_class(x, y)
 
 
 def visitor_func(name, node):
     if isinstance(node, h5py.Group) and '/t_' in name:
-        process_action_class_combinations(node, 'MN', 'IP')
-        process_action_class_combinations(node, 'SD', 'IP')
-        process_action_class_combinations(node, 'MN', 'SD')
+
+        mn_ip_res = process_action_class_combinations(node, 'MN', 'IP')
+        sd_ip_res = process_action_class_combinations(node, 'SD', 'IP')
+        mn_sd_res = process_action_class_combinations(node, 'MN', 'SD')
+
+        with h5py.File(decoding_results_hdf_file, 'a') as f:
+            group = f.create_group(name=name)
+            group.create_dataset(name='MNvsIP', data=mn_ip_res)
+            group.create_dataset(name='SDvsIP', data=sd_ip_res)
+            group.create_dataset(name='MNvsSD', data=mn_sd_res)
 
 
 if __name__ == '__main__':
     file = h5py.File('/Users/senaer/Codes/CCNLab/Intracerebral-ActionPerception/Decoding/power_19sep_13_30.hdf5', 'r')
     file.visititems(visitor_func)
-
