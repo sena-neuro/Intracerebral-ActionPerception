@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 parent_path = Path('/auto/data2/oelmas/Intracerebral')
-output_path = parent_path / 'Data' / 'Results'
+output_path = parent_path / 'Results'
 
 decoding_results_hdf_file = str(output_path / 'TEST_decoding_results.hdf5')
 
@@ -36,7 +36,7 @@ def decode_action_class(x, y):
     clf.fit(x, y)
 
     score, perm_scores, p_value = permutation_test_score(clf, x, y, scoring="accuracy", n_permutations=3, n_jobs=1)
-    return [score, perm_scores, p_value]
+    return score, p_value
 
 
 def process_action_class_combinations(node, ac1, ac2):
@@ -65,5 +65,5 @@ def visitor_func(name, node):
 
 
 if __name__ == '__main__':
-    file = h5py.File('/Users/senaer/Codes/CCNLab/Intracerebral-ActionPerception/Decoding/power_19sep_13_30.hdf5', 'r')
-    file.visititems(visitor_func)
+    with  h5py.File('/auto/data2/oelmas/Intracerebral/Data/BENEDETTI_TEST_power_data.hdf5', 'r') as file:
+    	file.visititems(visitor_func)
