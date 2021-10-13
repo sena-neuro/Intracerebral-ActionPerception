@@ -11,7 +11,7 @@ from pathlib import Path
 parent_path = Path('/auto/data2/oelmas/Intracerebral')
 output_path = parent_path / 'Results'
 
-decoding_results_hdf_file = str(output_path / 'TEST_decoding_results.hdf5')
+decoding_results_hdf_file = str(output_path / 'ACC_decoding_results.hdf5')
 
 def decode_action_class(x, y):
     """
@@ -31,11 +31,11 @@ def decode_action_class(x, y):
                     ('clf', svm.SVC(kernel='linear', C=1e-04))])
 
     # Create Cross validation
-    cv = StratifiedKFold(n_splits=10, shuffle=True)
+    cv = StratifiedKFold(n_splits=5, shuffle=True)
 
     clf.fit(x, y)
 
-    score, perm_scores, p_value = permutation_test_score(clf, x, y, scoring="accuracy", n_permutations=3, n_jobs=1)
+    score, perm_scores, p_value = permutation_test_score(clf, x, y, cv=cv, scoring="accuracy", n_permutations=100, n_jobs=-1)
     return score, p_value
 
 
@@ -62,6 +62,17 @@ def visitor_func(name, node):
             group.create_dataset(name='MNvsIP', data=mn_ip_res)
             group.create_dataset(name='SDvsIP', data=sd_ip_res)
             group.create_dataset(name='MNvsSD', data=mn_sd_res)
+
+            if mn_ip_res[1] <= 0.05 and mn_sd_res[1] <= 0.05 and sd_ip_res[1] <= 0.05:
+                group.attrs['specificity'] = 'ALL'
+            elif mn_ip_res[1] <= 0.05 and mn_sd_res[1] <= 0.05 and sd_ip_res[1] > 0.05:
+                group.attrs['specificity'] = 'MN'
+            elif mn_ip_res[1] > 0.05 and mn_sd_res[1] <= 0.05 and sd_ip_res[1] <= 0.05:
+                group.attrs['specificity'] = 'SD'
+            elif mn_ip_res[1] <= 0.05 and mn_sd_res[1] > 0.05 and sd_ip_res[1] <= 0.05:
+                group.attrs['specificity'] = 'IP'
+            else:
+                group.attrs['specificity'] = 'NONE'
 
 
 if __name__ == '__main__':
