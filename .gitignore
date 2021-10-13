@@ -17,7 +17,10 @@ Preprocessing/.*
 Data/
 Data/*
 Decoding/*.xslx
+Decoding/*.hdf5
 Results/
 Results/*
 Reports/
 Reports/*
+*/.ipynb_checkpoints/
+
