@@ -38,8 +38,8 @@ def mat_to_hdf(subject_path : Path):
 
         for condition_path in condition_paths:
             condition_mat_struct = scipy.io.loadmat(condition_path, struct_as_record=False)["D"]
-
-            ac_code = re.search(r"\d", condition_path.stem).group()
+            # print(condition_path.stem)
+            ac_code = re.search(r"_\d\d\d", condition_path.stem).group()[1]
             action_category = event_code_to_action_category_map[ac_code]
 
             apostrophe = re.compile("(')")
@@ -58,12 +58,10 @@ def mat_to_hdf(subject_path : Path):
                 # If the AR_tfX has a size 0f 0 then all trials must have been rejected.
                 if lead_data.ChanType[0] == "iEEG" and lead_name_correct and lead_data.AR_tfX.size != 0:
 
-                    # Get the power information (50x200xtrial)
-                    power = lead_data.AR_power  # (50, 200, n_trial)
+                    # Get the power information
+                    power = lead_data.AR_power  # (50, 200, n_trial) = (n_freqs, n_times, n_trials)
                     # times = lead_data.AR_times[0]  # (200,)
                     # freqs = lead_data.AR_freqs[0]  # (50,)
-
-                    print(" - ", subject_name, condition_path.stem, lead_name)
 
                     # We can't have names with apostrophes so
                     # change the apostrophe with an underscore
@@ -73,10 +71,14 @@ def mat_to_hdf(subject_path : Path):
                     subject_lead_key = subject_name + '/' + lead_name_no_ap
                     # Open the group if it is not created before create it first
                     group = file.require_group(subject_lead_key)
-                    n_trials = power.shape[2] if len(power.shape) == 3 else 1
-
+                    
+                    power = power.reshape(power.shape[0], power.shape[1], -1) # (n_freqs, n_times, n_trials)
+                    n_trials = power.shape[2]
+                    
                     for time_idx in range(200):
-                        power_t = power[:, time_idx].transpose()
+                        # Take all freqs and trials for a specific time point
+                        power_t = power[:, time_idx, :].transpose()    
+                        
                         time_ac_key = 't_' + str(time_idx) + '/' + action_category
 
                         # The key is not in the group keys
@@ -93,6 +95,7 @@ def mat_to_hdf(subject_path : Path):
                             dataset.resize((dataset.shape[1] + n_trials, 50))
                             dataset[-n_trials:, :] = power_t
 
+        print(subject_name, " is processed. Moving on to the next subject...")
     file.close()
 
 
