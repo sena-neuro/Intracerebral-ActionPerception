@@ -30,7 +30,7 @@ def mat_to_hdf(subject_path : Path):
     file = h5py.File(power_hdf_file, 'a')
     subject_name = subject_path.stem
     
-    if subject_name in file.keys(): # Not tested as of 13 October 2021
+    if subject_name in file.keys():
         print(subject_name, " is already in the HDF file. Moving on to the next subject...")
     else:
         condition_paths = [x for x in subject_path.iterdir() if x.match('*.mat')]
