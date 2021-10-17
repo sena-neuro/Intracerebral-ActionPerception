@@ -106,22 +106,23 @@ def identity(x):
 if __name__ == '__main__':
 
     with h5py.File(power_hdf_file, 'r') as power_hdf:
-        for _, subj_group in power_hdf.items():
-            for _, lead_group in subj_group.items():
+        for subj_name, subj_group in power_hdf.items():
+            for lead_name, lead_group in subj_group.items():
                 for _, time_group in lead_group.items():
                     decode(time_group.name, time_group)
 
                 with h5py.File(decoding_results_hdf_file, 'a') as res_hdf:
-                    for ac_name, ac_group in lead_group.items():
-                        t_vals = ac_group["t-vals"][:].reshape((1,-1))
-                        # T_obs, clusters, cluster_p_values, H0
+                    key = subj_name + '/' + lead_name
+                    group = res_hdf[key]
+                    for ac_name, ac_group in group.items():
+                        t_vals = ac_group["t-vals"][:]
+                        
                         p_thresh = 0.025    # Two-tailed
-                        n_samples = t_vals.shape[1]
+                        n_samples = len(t_vals)
                         thresh = -scipy.stats.distributions.t.ppf(p_thresh, n_samples - 1)
 
-                        T_obs, clusters, cluster_p_values, H0 = mne.stats.permutation_cluster_1samp_test(t_vals,
-                                                                                                         tail=0,
-                                                                                                         threshold=thresh,
-                                                                                                         stat_fun=identity)
+                        T_obs, clusters, cluster_p_values, H0 = \
+                            mne.stats.permutation_cluster_1samp_test( \
+                                t_vals.reshape((1,-1)), tail=0, threshold=thresh, stat_fun=identity)
                         res_list = [T_obs, clusters, cluster_p_values, H0]
                         dset = ac_group.create_dataset(name="cluster_stat_res", data=res_list)
