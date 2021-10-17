@@ -1,28 +1,38 @@
+import datetime
+import re
 import h5py
+import scipy
 from sklearn import svm
-from sklearn.model_selection import StratifiedKFold
-from sklearn.model_selection import permutation_test_score
+from sklearn.model_selection import RepeatedStratifiedKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 import numpy as np
 from pathlib import Path
+import mne
 
 parent_path = Path('/auto/data2/oelmas/Intracerebral')
 output_path = parent_path / 'Results'
+input_path = parent_path / 'Data'
 
-decoding_results_hdf_file = str(output_path / 'ACC_decoding_results.hdf5')
+power_hdf_file = str(input_path / 'power_data.hdf5')
+
+date = datetime.datetime.today().strftime('%d-%m')
+output_f_name = date + '_decoding_results.hdf5'
+decoding_results_hdf_file = str(output_path / output_f_name)
+
+action_classes = ['MN', 'IP', 'SD']
 
 
 def decode_action_class(x, y):
     """
-    Pairwise action category decoding
-
-    :rtype: float, array (shape: permutation), float
-    :returns score, perm_scores, p_value
-    :keyword x : Any
+    Action category decoding - one versus rest
+    :keyword x
         power
-    :keyword y : Any
+    :keyword y
         action category
+
+    :returns t_val_dict
+
     """
     # Permutation test
     # param_grid=param_grid, n_jobs=1
@@ -30,52 +40,90 @@ def decode_action_class(x, y):
     clf = Pipeline([('scale', StandardScaler()),
                     ('clf', svm.SVC(kernel='linear', C=1e-04))])
 
-    # Create Cross validation
-    cv = StratifiedKFold(n_splits=5, shuffle=True)
+    cv = RepeatedStratifiedKFold(n_splits=5, n_repeats=10, random_state=42)
 
-    clf.fit(x, y)
+    n_splits = cv.get_n_splits()
+    t_val_dict = dict.fromkeys(action_classes, np.empty(n_splits, dtype='float64'))
+    for split_idx, (train_idx, test_idx) in enumerate(cv.split(x, y)):
+        x_train, x_test, y_train, y_test = x[train_idx], x[test_idx], y[train_idx], y[test_idx]
+        clf.fit(x_train, y_train)
 
-    score, perm_scores, p_value = permutation_test_score(clf, x, y, cv=cv, scoring="accuracy", n_permutations=100,
-                                                         n_jobs=-1)
-    return score, p_value
+        for ac_idx, action_class in enumerate(clf.classes_):
+            # Trials belonging to a specific action class
+            true_ac_trials_idx = np.where(y_test == action_class)
+            rest_trials_idx = np.where(y_test != action_class)
+
+            d_vals = clf.decision_function(x_test)  # Distance to MN, IP, SD hyperplanes
+            # True ac trials' distance to the hyperplane of the true action class
+            true_ac_d_val = d_vals[true_ac_trials_idx, ac_idx].flatten()
+            # Rest of the trials' distance to the hyperplane of the true action class
+            rest_d_val = d_vals[rest_trials_idx, ac_idx].flatten()
+
+            t_val = scipy.stats.ttest_ind(true_ac_d_val, rest_d_val).statistic
+            t_val_dict[action_class][split_idx] = t_val
+
+    # Average splits
+    t_val_dict = {key: np.nanmean(value) for key, value in t_val_dict.items()}
+
+    return t_val_dict
 
 
-def process_action_class_combinations(node, ac1, ac2):
-    pow1 = node[ac1][:]
-    pow2 = node[ac2][:]
+def decode(name, node):
+    mn_pow = node['MN'][:]
+    ip_pow = node['IP'][:]
+    sd_pow = node['SD'][:]
 
-    x = np.append(pow1, pow2, axis=0)
-    y = [ac1] * len(pow1) + [ac2] * len(pow2)
+    x = np.concatenate((mn_pow, ip_pow, sd_pow), axis=0)  # Does it work like this?
+    y = np.array(['MN'] * len(mn_pow) + ['IP'] * len(ip_pow) + ['SD'] * len(ip_pow))
 
     # classify
-    return decode_action_class(x, y)
+    res = decode_action_class(x, y)
+
+    search = re.search(r"/t_", name)
+    subj_lead_key = name[0:search.start()]
+
+    #dt = np.dtype([("t_vals", np.float64, (200,) ),
+    #               ("T_obs", np.float64, (n_tests,1) ),
+    #               ("clusters", list() ),
+    #               ("cluster_p_values", np.float64, (n_perm,1) ),
+    #               ("H0", np.float64, (n_perm,) )
+    #               ])
+
+    with h5py.File(decoding_results_hdf_file, 'a') as f:
+        subj_lead_group = f.require_group(name=subj_lead_key)
+        for ac, t_val in res.items():
+            subj_lead_ac_key = subj_lead_key + '/' + ac
+            ac_group = subj_lead_group.require_group(name=subj_lead_ac_key)
+            dset = ac_group.require_dataset(name="t-vals", shape=(200,), dtype=float)
+            time_idx = int(name[search.end():])
+            dset[time_idx] = t_val
 
 
-def visitor_func(name, node):
-    if isinstance(node, h5py.Group) and '/t_' in name:
-
-        mn_ip_res = process_action_class_combinations(node, 'MN', 'IP')
-        sd_ip_res = process_action_class_combinations(node, 'SD', 'IP')
-        mn_sd_res = process_action_class_combinations(node, 'MN', 'SD')
-
-        with h5py.File(decoding_results_hdf_file, 'a') as f:
-            group = f.create_group(name=name)
-            group.create_dataset(name='MNvsIP', data=mn_ip_res)
-            group.create_dataset(name='SDvsIP', data=sd_ip_res)
-            group.create_dataset(name='MNvsSD', data=mn_sd_res)
-
-            if mn_ip_res[1] <= 0.05 and mn_sd_res[1] <= 0.05 and sd_ip_res[1] <= 0.05:
-                group.attrs['specificity'] = 'ALL'
-            elif mn_ip_res[1] <= 0.05 and mn_sd_res[1] <= 0.05 and sd_ip_res[1] > 0.05:
-                group.attrs['specificity'] = 'MN'
-            elif mn_ip_res[1] > 0.05 and mn_sd_res[1] <= 0.05 and sd_ip_res[1] <= 0.05:
-                group.attrs['specificity'] = 'SD'
-            elif mn_ip_res[1] <= 0.05 and mn_sd_res[1] > 0.05 and sd_ip_res[1] <= 0.05:
-                group.attrs['specificity'] = 'IP'
-            else:
-                group.attrs['specificity'] = 'NONE'
+def identity(x):
+    return x
 
 
 if __name__ == '__main__':
-    with h5py.File('/auto/data2/oelmas/Intracerebral/Data/BENEDETTI_TEST_power_data.hdf5', 'r') as file:
-        file.visititems(visitor_func)
+
+    with h5py.File(power_hdf_file, 'r') as power_hdf:
+        for _, subj_group in power_hdf.items():
+            for _, lead_group in subj_group.items():
+                for _, time_group in lead_group.items():
+                    decode(time_group.name, time_group)
+
+    with h5py.File(decoding_results_hdf_file, 'a') as res_hdf:
+        for subj_name, subj_group in res_hdf.items():
+            for lead_name, lead_group in subj_group.items():
+                for ac_name, ac_group in lead_group.items():
+                    t_vals = ac_group["t-vals"][:].reshape((1,-1))
+                    # T_obs, clusters, cluster_p_values, H0
+                    p_thresh = 0.025    # Two-tailed
+                    n_samples = t_vals.shape[1]
+                    thresh = -scipy.stats.distributions.t.ppf(p_thresh, n_samples - 1)
+
+                    T_obs, clusters, cluster_p_values, H0 = mne.stats.permutation_cluster_1samp_test(t_vals,
+                                                                                                     tail=0,
+                                                                                                     threshold=thresh,
+                                                                                                     stat_fun=identity)
+                    res_list = [T_obs, clusters, cluster_p_values, H0]
+                    dset = ac_group.create_dataset(name="cluster_stat_res", data=res_list)
