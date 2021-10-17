@@ -14,7 +14,6 @@ event_code_to_action_category_map = {
     "7": "IP",  # Interpersonal
 }
 
-# Using lead data map, we can do a classification for each lead Input path
 parent_path = Path('/auto/data2/oelmas/Intracerebral')
 input_path = parent_path / 'Data' / 'TF_Analyzed'
 output_path = parent_path / 'Data'

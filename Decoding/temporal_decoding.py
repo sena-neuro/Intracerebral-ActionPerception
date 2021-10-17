@@ -7,11 +7,11 @@ from sklearn.pipeline import Pipeline
 import numpy as np
 from pathlib import Path
 
-
 parent_path = Path('/auto/data2/oelmas/Intracerebral')
 output_path = parent_path / 'Results'
 
 decoding_results_hdf_file = str(output_path / 'ACC_decoding_results.hdf5')
+
 
 def decode_action_class(x, y):
     """
@@ -35,7 +35,8 @@ def decode_action_class(x, y):
 
     clf.fit(x, y)
 
-    score, perm_scores, p_value = permutation_test_score(clf, x, y, cv=cv, scoring="accuracy", n_permutations=100, n_jobs=-1)
+    score, perm_scores, p_value = permutation_test_score(clf, x, y, cv=cv, scoring="accuracy", n_permutations=100,
+                                                         n_jobs=-1)
     return score, p_value
 
 
@@ -76,5 +77,5 @@ def visitor_func(name, node):
 
 
 if __name__ == '__main__':
-    with  h5py.File('/auto/data2/oelmas/Intracerebral/Data/BENEDETTI_TEST_power_data.hdf5', 'r') as file:
-    	file.visititems(visitor_func)
+    with h5py.File('/auto/data2/oelmas/Intracerebral/Data/BENEDETTI_TEST_power_data.hdf5', 'r') as file:
+        file.visititems(visitor_func)
