@@ -14,11 +14,11 @@ parent_path = Path('/auto/data2/oelmas/Intracerebral')
 output_path = parent_path / 'Results'
 input_path = parent_path / 'Data'
 
-power_hdf_file = str(input_path / 'power_data.hdf5')
+power_hdf_file = input_path / 'power_data.hdf5'
 
 date = datetime.datetime.today().strftime('%d-%m')
 output_f_name = date + '_decoding_results.hdf5'
-decoding_results_hdf_file = str(output_path / output_f_name)
+decoding_results_hdf_file = output_path / output_f_name
 
 action_classes = ['MN', 'IP', 'SD']
 
@@ -73,21 +73,14 @@ def decode(name, node):
     ip_pow = node['IP'][:]
     sd_pow = node['SD'][:]
 
-    x = np.concatenate((mn_pow, ip_pow, sd_pow), axis=0)  # Does it work like this?
-    y = np.array(['MN'] * len(mn_pow) + ['IP'] * len(ip_pow) + ['SD'] * len(ip_pow))
+    x = np.concatenate((mn_pow, ip_pow, sd_pow), axis=0)
+    y = np.array(['MN'] * len(mn_pow) + ['IP'] * len(ip_pow) + ['SD'] * len(sd_pow))
 
     # classify
     res = decode_action_class(x, y)
 
     search = re.search(r"/t_", name)
     subj_lead_key = name[0:search.start()]
-
-    #dt = np.dtype([("t_vals", np.float64, (200,) ),
-    #               ("T_obs", np.float64, (n_tests,1) ),
-    #               ("clusters", list() ),
-    #               ("cluster_p_values", np.float64, (n_perm,1) ),
-    #               ("H0", np.float64, (n_perm,) )
-    #               ])
 
     with h5py.File(decoding_results_hdf_file, 'a') as f:
         subj_lead_group = f.require_group(name=subj_lead_key)
@@ -104,6 +97,9 @@ def identity(x):
 
 
 if __name__ == '__main__':
+    if decoding_results_hdf_file.exists():
+        decoding_results_hdf_file.unlink()
+        
 
     with h5py.File(power_hdf_file, 'r') as power_hdf:
         for subj_name, subj_group in power_hdf.items():
@@ -115,14 +111,19 @@ if __name__ == '__main__':
                     key = subj_name + '/' + lead_name
                     group = res_hdf[key]
                     for ac_name, ac_group in group.items():
-                        t_vals = ac_group["t-vals"][:]
+                        t_vals = ac_group["t-vals"][:].reshape((1,-1))
                         
                         p_thresh = 0.025    # Two-tailed
-                        n_samples = len(t_vals)
+                        n_samples = t_vals.shape[1]
                         thresh = -scipy.stats.distributions.t.ppf(p_thresh, n_samples - 1)
-
+                        
+                        
                         T_obs, clusters, cluster_p_values, H0 = \
                             mne.stats.permutation_cluster_1samp_test( \
-                                t_vals.reshape((1,-1)), tail=0, threshold=thresh, stat_fun=identity)
-                        res_list = [T_obs, clusters, cluster_p_values, H0]
-                        dset = ac_group.create_dataset(name="cluster_stat_res", data=res_list)
+                                t_vals, tail=0, threshold=thresh, stat_fun=identity, verbose='error')
+                        
+                        dt = np.dtype([('clusters', 'f'),
+                                      ('cluster_p_values', 'f')])
+                        res_arr = np.array([clusters, cluster_p_values], dtype=dt)
+
+                        dset = ac_group.create_dataset(name="cluster_stat_res", data=res_arr)
