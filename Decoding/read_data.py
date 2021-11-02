@@ -6,6 +6,7 @@ import h5py
 import scipy.io
 import re
 from pathlib import Path
+import numpy as np
 
 # Mapping from condition to label
 event_code_to_action_category_map = {
@@ -14,93 +15,123 @@ event_code_to_action_category_map = {
     "7": "IP",  # Interpersonal
 }
 
-parent_path = Path('/auto/data2/oelmas/Intracerebral')
+if Path().owner() == 'senaer':
+    parent_path = Path('/Users/senaer/Codes/CCNLab/Intracerebral-ActionPerception')
+else:
+    parent_path = Path('/auto/data2/oelmas/Intracerebral')
 input_path = parent_path / 'Data' / 'TF_Analyzed'
 output_path = parent_path / 'Data'
 
-power_hdf_file = str(output_path / 'power_data.hdf5')
+hdf_file = output_path / 'intracerebral_action_data.hdf5'
+
+lead_name_to_idx = dict()
+next_lead_idx = 0
 
 
-def mat_to_hdf(subject_path : Path):
+def process_subject(subject_path: Path, verbose=True):
     """
 
     """
-
-    # Create and/or open HDF5 in append mode
-    file = h5py.File(power_hdf_file, 'a')
     subject_name = subject_path.stem
-    
-    if subject_name in file.keys(): # Not tested as of 13 October 2021
-        print(subject_name, " is already in the HDF file. Moving on to the next subject...")
-    else:
-        condition_paths = [x for x in subject_path.iterdir() if x.match('*.mat')]
+    condition_paths = [x for x in subject_path.iterdir() if x.match('*.mat')]
 
-        for condition_path in condition_paths:
-            condition_mat_struct = scipy.io.loadmat(condition_path, struct_as_record=False)["D"]
+    for condition_path in condition_paths:
+        condition_mat_struct = scipy.io.loadmat(condition_path, struct_as_record=False)["D"]
 
-            ac_code = re.search(r"\d", condition_path.stem).group()
-            action_category = event_code_to_action_category_map[ac_code]
+        condition_code = re.search(r"\d\d\d", condition_path.stem).group()
+        ac_code = condition_code[0]
+        action_category = event_code_to_action_category_map[ac_code]
+        trial_code_1 = int(condition_code[1])
+        trial_code_2 = int(condition_code[2])
 
-            apostrophe = re.compile("(')")
+        dset = hdf[action_category + '/power']
+        # dset = hdf[MN_power_dset.ref]
 
-            for idx, lead in enumerate(condition_mat_struct):
+        for idx, lead in enumerate(condition_mat_struct):
+            # Get the data in the lead
+            lead_data = lead[0][0][0]
+            # Get lead name
+            channel_name = lead_data.ChanName[0]
 
-                # Get the data in the lead
-                lead_data = lead[0][0][0]
-                # Get lead name
-                lead_name = lead_data.ChanName[0]
-                # Check if the lead name follows the format and isnt one of the unnecessary leads
-                lead_name_correct = re.match("([A-Z]'?(([0-9]+'?)|[A-Z]?)$)", lead_name)
+            # Check if the lead name follows the format and it is not one of the unnecessary leads
+            # such as c4, DEL1, EOG1, pz, E, MILO2, TIB1, p3, p4,
+            # Starts with a capital letter, apostrophe may follow, ends with digits (at least one digit)
+            is_a_lead_of_interest = re.match(r"^([A-Z]'?\d+)$", channel_name)
 
+            # Check if the lead is iEEG
+            # Check if the lead is a wanted lead
+            # Check if the AR_tfX has a size 0 (=all trials were rejected)
+            # Skip the lead if any condition holds
+            if lead_data.ChanType[0] == "iEEG" and is_a_lead_of_interest and lead_data.AR_tfX.size != 0:
+                subj_lead_name = find_lead_name_in_paint(subject_name, channel_name)
 
-                # Check if the lead is iEEG There are some probable unnecesssary channels here e.g EOG2 DEL4?
-                # If the AR_tfX has a size 0f 0 then all trials must have been rejected.
-                if lead_data.ChanType[0] == "iEEG" and lead_name_correct and lead_data.AR_tfX.size != 0:
+                if verbose:
+                    # Report the progress
+                    print(subj_lead_name, condition_code)
 
-                    # Get the power information (50x200xtrial)
-                    power = lead_data.AR_power  # (50, 200, n_trial)
-                    # times = lead_data.AR_times[0]  # (200,)
-                    # freqs = lead_data.AR_freqs[0]  # (50,)
+                if subj_lead_name not in lead_name_to_idx.keys():
+                    global next_lead_idx
+                    lead_name_to_idx[subj_lead_name] = next_lead_idx
+                    next_lead_idx = next_lead_idx + 1
 
-                    print(" - ", subject_name, condition_path.stem, lead_name)
+                current_lead_idx = lead_name_to_idx[subj_lead_name]
 
-                    # We can't have names with apostrophes so
-                    # change the apostrophe with an underscore
-                    lead_name_no_ap = apostrophe.sub('_', lead_name)
+                # Import power data, swap the time and frequency axes, i.e., (50, 200, n_trials) -> (200, 50, n_trials)
+                # Make it c-contiguous, add trials axis if non-existent (2d->3d)
+                power = np.atleast_3d(np.ascontiguousarray(np.swapaxes(lead_data.AR_power, 0, 1)))
+                # times = lead_data.AR_times[0]  # (200,)
+                # freqs = lead_data.AR_freqs[0]  # (50,)
+                n_trials = power.shape[2]
 
-                    # Create a HDF5 group with the subject and the lead
-                    subject_lead_key = subject_name + '/' + lead_name_no_ap
-                    # Open the group if it is not created before create it first
-                    group = file.require_group(subject_lead_key)
-                    n_trials = power.shape[2] if len(power.shape) == 3 else 1
-
-                    for time_idx in range(200):
-                        power_t = power[:, time_idx].transpose()
-                        time_ac_key = 't_' + str(time_idx) + '/' + action_category
-
-                        # The key is not in the group keys
-                        # First time the key is formed
-                        # Dataset is created
-                        if time_ac_key not in group.keys():
-                            group.create_dataset(time_ac_key,
-                                                 data=power_t,
-                                                 maxshape=(64, 50)
-                                                 )
-
-                        else:
-                            dataset = group[time_ac_key]
-                            dataset.resize((dataset.shape[1] + n_trials, 50))
-                            dataset[-n_trials:, :] = power_t
-
-    file.close()
+                # Compute trial indices
+                # trial_code_1 and trial_code_2 both go from 1 to 4
+                trials_begin_idx = (((trial_code_1 - 1) * 4) + trial_code_2 - 1) * 4
+                trials_end_idx = trials_begin_idx + n_trials
+                dset.write_direct(power, dest_sel=np.s_[current_lead_idx, ..., trials_begin_idx:trials_end_idx])
 
 
-def process_each_subject():
-    subject_paths = [x for x in input_path.iterdir() if x.is_dir()]
+def find_lead_name_in_paint(subject_name, lead_name):
+    apostrophe = re.compile(r"(')")
 
-    for s_path in subject_paths:
-        mat_to_hdf(s_path)
+    # We can't have names with apostrophes so
+    # change the apostrophe with an underscore
+    lead_name = apostrophe.sub('_', lead_name)
+
+    # NOT DONE YET
+    # Find the subject name (check the start) in lead_names_in_paint_list
+    # Find the lead name in lead_names_in_paint_list
+    # Raise a warning if it is not found
+    # Raise a warning if it is ending with _0_node
+
+    # TEMPORARY?
+    subject_lead_name = subject_name + '_' + lead_name
+    return subject_lead_name
+
+########################################################################################################################
 
 
 if __name__ == '__main__':
-    process_each_subject()
+
+    if hdf_file.exists():
+        hdf_file.unlink()
+
+    # Create and/or open HDF5 in append mode
+    hdf = h5py.File(hdf_file, 'a')
+
+    # Create and open datasets
+    MN_power_dset = hdf.create_dataset('MN/power', (10000, 200, 50, 64), fillvalue=-1, dtype=np.float32)
+    SD_power_dset = hdf.create_dataset('SD/power', (10000, 200, 50, 64), fillvalue=-1, dtype=np.float32)
+    IP_power_dset = hdf.create_dataset('IP/power', (10000, 200, 50, 64), fillvalue=-1, dtype=np.float32)
+
+    subject_paths = [x for x in input_path.iterdir() if x.is_dir()]
+    # Process each subject
+    for s_path in subject_paths:
+        # futureTODO check if the subject name is in the subject name indices dictionary?
+        # If it is pass the subject
+        #    print(subject_name, " is already in the HDF file. Moving on to the next subject...")
+        process_subject(s_path)
+
+    # Trim necessarily
+    MN_power_dset.resize((next_lead_idx, 200, 50, 64))
+    SD_power_dset.resize((next_lead_idx, 200, 50, 64))
+    IP_power_dset.resize((next_lead_idx, 200, 50, 64))
