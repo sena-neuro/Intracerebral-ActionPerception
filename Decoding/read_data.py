@@ -50,11 +50,8 @@ def process_subject(subject_path: Path, verbose=True):
     for condition_path in condition_paths:
         condition_mat_struct = scipy.io.loadmat(condition_path, struct_as_record=False)["D"]
 
-        condition_code = re.search(r"\d\d\d", condition_path.stem).group()
-        ac_code = condition_code[0]
+        _, ac_code, trial_code_1, trial_code_2, _ = re.search(r"(_)(\d)(\d)(\d)(_)", condition_path.stem).groups()
         action_category = event_code_to_action_category_map[ac_code]
-        trial_code_1 = int(condition_code[1])
-        trial_code_2 = int(condition_code[2])
 
         dset = hdf[action_category + '/power']
 
@@ -78,7 +75,7 @@ def process_subject(subject_path: Path, verbose=True):
 
                 if verbose:
                     # Report the progress
-                    print(subj_lead_name, condition_code)
+                    print(f"{subj_lead_name} {ac_code}{trial_code_1}{trial_code_2}")
 
                 if subj_lead_name not in lead_name_to_idx.keys():
                     global next_lead_idx
@@ -99,7 +96,7 @@ def process_subject(subject_path: Path, verbose=True):
 
                 # Compute trial indices
                 # trial_code_1 and trial_code_2 both go from 1 to 4
-                trials_begin_idx = (((trial_code_1 - 1) * 4) + trial_code_2 - 1) * 4
+                trials_begin_idx = (((int(trial_code_1) - 1) * 4) + int(trial_code_2) - 1) * 4
                 trials_end_idx = trials_begin_idx + n_trials
                 dset.write_direct(power, dest_sel=np.s_[current_lead_idx, ..., trials_begin_idx:trials_end_idx])
 
@@ -107,15 +104,13 @@ def process_subject(subject_path: Path, verbose=True):
 def construct_lead_name(subject_name, lead_name):
     lead_code = re.compile(r"([A-Z])('?)(\d+)")
     channel_letter, apostrophe, channel_number = lead_code.match(lead_name).groups()
-    if len(channel_number) == 1:
-        channel_number = "0" + channel_number
 
     if apostrophe == "'":
         hemisphere = 'Left'
     else:
         hemisphere = 'Right'
 
-    subject_lead_name = hemisphere + '_' + subject_name + '_' + channel_letter + '_' + channel_number
+    subject_lead_name = hemisphere + '_' + subject_name + '_' + channel_letter + '_' + channel_number.zfill(2)
     return subject_lead_name
 
 
