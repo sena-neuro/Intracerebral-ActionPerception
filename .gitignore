@@ -7,6 +7,7 @@
 *.pdf
 *.xlsx
 *.pkl
+*/.ipynb_checkpoints/
 
 Decoding/BetterThanRandom/
 Decoding/__pycache__/
@@ -17,6 +18,7 @@ Preprocessing/.*
 Data/
 Data/*
 Decoding/*.xslx
+Decoding/*.hdf5
 Results/
 Results/*
 Reports/
