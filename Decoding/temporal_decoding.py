@@ -10,15 +10,18 @@ import numpy as np
 from pathlib import Path
 import mne
 
-parent_path = Path('/auto/data2/oelmas/Intracerebral')
-output_path = parent_path / 'Results'
+if Path().owner() == 'senaer':
+    parent_path = Path('/Users/senaer/Codes/CCNLab/Intracerebral-ActionPerception')
+else:
+    parent_path = Path('/auto/data2/oelmas/Intracerebral')
 input_path = parent_path / 'Data'
+output_path = parent_path / 'Results'
 
-power_hdf_file = str(input_path / 'power_data.hdf5')
+hdf_file = input_path / 'intracerebral_action_data.hdf5'
 
 date = datetime.datetime.today().strftime('%d-%m')
-output_f_name = date + '_decoding_results.hdf5'
-decoding_results_hdf_file = str(output_path / output_f_name)
+#output_f_name = date + '_decoding_results.hdf5'
+#decoding_results_hdf_file = output_path / output_f_name
 
 action_classes = ['MN', 'IP', 'SD']
 
@@ -68,26 +71,16 @@ def decode_action_class(x, y):
     return t_val_dict
 
 
-def decode(name, node):
-    mn_pow = node['MN'][:]
-    ip_pow = node['IP'][:]
-    sd_pow = node['SD'][:]
+def decode():
+    mn_pow = hdf['MN/power'][:]
+    ip_pow = hdf['IP/power'][:]
+    sd_pow = hdf['SD/power'][:]
 
-    x = np.concatenate((mn_pow, ip_pow, sd_pow), axis=0)  # Does it work like this?
+    x = np.concatenate((mn_pow, ip_pow, sd_pow), axis=0)
     y = np.array(['MN'] * len(mn_pow) + ['IP'] * len(ip_pow) + ['SD'] * len(ip_pow))
 
     # classify
     res = decode_action_class(x, y)
-
-    search = re.search(r"/t_", name)
-    subj_lead_key = name[0:search.start()]
-
-    #dt = np.dtype([("t_vals", np.float64, (200,) ),
-    #               ("T_obs", np.float64, (n_tests,1) ),
-    #               ("clusters", list() ),
-    #               ("cluster_p_values", np.float64, (n_perm,1) ),
-    #               ("H0", np.float64, (n_perm,) )
-    #               ])
 
     with h5py.File(decoding_results_hdf_file, 'a') as f:
         subj_lead_group = f.require_group(name=subj_lead_key)

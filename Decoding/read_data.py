@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 import numpy as np
 import pickle
+import datetime
 
 # Mapping from condition to label
 event_code_to_action_category_map = {
@@ -23,7 +24,8 @@ else:
 input_path = parent_path / 'Data' / 'TF_Analyzed'
 output_path = parent_path / 'Data'
 
-hdf_file = output_path / 'intracerebral_action_data.hdf5'
+date = datetime.datetime.today().strftime('%d-%m')
+hdf_file = output_path / f'{date}_intracerebral_action_data.hdf5'
 
 lead_name_to_idx = dict()
 next_lead_idx = 0
@@ -34,26 +36,37 @@ subject_names_set = {'BarellS', 'BenedettiL', 'BerberiM', 'BonsoE', 'CioffiML',
                      'MeringoloD', 'PriviteraM', 'RollaS', 'SalimbeniR', 'SelvaBoninoR',
                      'TrombacciaR', 'VentroneS', 'VeugelersD', 'VivianB', 'LodiG',
                      'FedericoR', 'FraniM', 'MoniF', 'MilitaruR', 'MorandiniS',
-                     'DeProprisA', 'PetriceanuC', 'SavaP', 'RomanoA', 'OttoboniV'
+                     'DeProprisA', 'PetriceanuC', 'SavaP', 'RomanoA', 'OttoboniV',
                      'PlutinoA', 'ProneA', 'MartiniML', 'WairN', 'ZanoniM'}
 
 
-def process_subject(subject_path: Path, verbose=True):
+def process_subject(subject_path: Path, verbose=False):
     """
 
     """
     s_name_beg = re.compile(subject_path.stem[:4])
-    subject_name = next(filter(s_name_beg.match, subject_names_set))
-
+    try:
+        subject_name = next(filter(s_name_beg.match, subject_names_set))
+    except StopIteration:
+        print(f"Subject path: {subject_path}, First 4 chars: {s_name_beg.match}")
+        print(f"Could not find in the subjects set")
+        raise Exception(f"Exception in: {subject_path.stem}")
+    else:
+        print(f"Processing {subject_name}")
+        
+    global next_lead_idx
     condition_paths = [x for x in subject_path.iterdir() if x.match('*.mat')]
 
     for condition_path in condition_paths:
         condition_mat_struct = scipy.io.loadmat(condition_path, struct_as_record=False)["D"]
 
-        _, ac_code, trial_code_1, trial_code_2, _ = re.search(r"(_)(\d)(\d)(\d)(_)", condition_path.stem).groups()
+        ac_code, trial_code_1, trial_code_2 = re.search(r"_(\d)(\d)(\d)_", condition_path.stem).groups()
         action_category = event_code_to_action_category_map[ac_code]
 
         dset = hdf[action_category + '/power']
+        if dset.shape[0] < next_lead_idx + 500:
+            dset.resize((dset.shape[0] + 1000, 200, 50, 64))
+            
 
         for idx, lead in enumerate(condition_mat_struct):
             # Get the data in the lead
@@ -78,14 +91,15 @@ def process_subject(subject_path: Path, verbose=True):
                     print(f"{subj_lead_name} {ac_code}{trial_code_1}{trial_code_2}")
 
                 if subj_lead_name not in lead_name_to_idx.keys():
-                    global next_lead_idx
                     lead_name_to_idx[subj_lead_name] = next_lead_idx
                     next_lead_idx = next_lead_idx + 1
 
                 current_lead_idx = lead_name_to_idx[subj_lead_name]
 
-                if subj_lead_name in dset.attrs:
+                if subj_lead_name not in dset.attrs.keys():
                     dset.attrs[subj_lead_name] = dset.regionref[current_lead_idx, ...]
+                    # Usage: dset[dset.attrs[subj_lead_name]]
+                    # Shape: (1, 200, 50, 64)
 
                 # Import power data, swap the time and frequency axes, i.e., (50, 200, n_trials) -> (200, 50, n_trials)
                 # Make it c-contiguous, add trials axis if non-existent (2d->3d)
@@ -93,6 +107,10 @@ def process_subject(subject_path: Path, verbose=True):
                 # times = lead_data.AR_times[0]  # (200,)
                 # freqs = lead_data.AR_freqs[0]  # (50,)
                 n_trials = power.shape[2]
+                
+                # std_baseline = np.std(power[0:7, :, :], axis=0, keepdims=True)
+                # mean_baseline = np.mean(power[0:7, :, :], axis=0, keepdims=True)
+                # power_z_scored = (power - mean_baseline) / std_baseline
 
                 # Compute trial indices
                 # trial_code_1 and trial_code_2 both go from 1 to 4
@@ -122,23 +140,35 @@ if __name__ == '__main__':
     hdf = h5py.File(hdf_file, 'a')
 
     # Create and open datasets
-    MN_power_dset = hdf.create_dataset('MN/power', (5000, 200, 50, 64), fillvalue=-1, dtype=np.float32)
-    SD_power_dset = hdf.create_dataset('SD/power', (5000, 200, 50, 64), fillvalue=-1, dtype=np.float32)
-    IP_power_dset = hdf.create_dataset('IP/power', (5000, 200, 50, 64), fillvalue=-1, dtype=np.float32)
+    MN_power_dset = hdf.create_dataset('MN/power', shape=(6000, 200, 50, 64), maxshape=(10000, 200, 50, 64), 
+                                       chunks=(1, 1, 50, 64), fillvalue=np.nan, dtype=np.float32, compression='gzip')
+    SD_power_dset = hdf.create_dataset('SD/power', shape=(6000, 200, 50, 64), maxshape=(10000, 200, 50, 64),
+                                       chunks=(1, 1, 50, 64), fillvalue=np.nan, dtype=np.float32, compression='gzip')
+    IP_power_dset = hdf.create_dataset('IP/power', shape=(6000, 200, 50, 64), maxshape=(10000, 200, 50, 64), 
+                                       chunks=(1, 1, 50, 64), fillvalue=np.nan, dtype=np.float32, compression='gzip')
 
     subject_paths = [x for x in input_path.iterdir() if x.is_dir()]
     # Process each subject
     for s_path in subject_paths:
-        # futureTODO check if the subject name is in the subject name indices dictionary?
-        # If it is pass the subject
-        #    print(subject_name, " is already in the HDF file. Moving on to the next subject...")
-        process_subject(s_path)
-
+        try:
+            process_subject(s_path)
+        except Exception as e:
+            print(f'{s_path} passed!')
+            hdf.attrs[f'{s_path.stem[0:4]}_lead_dict'] = pickle.dumps(lead_name_to_idx, protocol=0)
+            print(e)
+            pass
+        else:
+            print(f'{s_path} is processed successfully...')
+        finally:
+            hdf.attrs['lead_name_to_idx'] = pickle.dumps(lead_name_to_idx, protocol=0)
+            # Usage: lead_name_to_idx = pickle.loads(hdf.attrs['lead_name_to_idx'])
+    
     # Trim necessarily
     MN_power_dset.resize((next_lead_idx, 200, 50, 64))
     SD_power_dset.resize((next_lead_idx, 200, 50, 64))
     IP_power_dset.resize((next_lead_idx, 200, 50, 64))
 
-    hdf.attrs['lead_name_to_idx'] = pickle.dumps(lead_name_to_idx, protocol=0)
-    # Usage
-    # lead_name_to_idx = pickle.loads(hdf.attrs['lead_name_to_idx'])
+    #for lead_name in dset.attrs.keys():
+    #m = re.match(r'(Right|Left)(_)(?P<sname>[A-Z][A-Za-z]*)(_[A-Z]_\d\d)', lead_name)
+    #if m:
+    #    s_set.add(m['sname'])
