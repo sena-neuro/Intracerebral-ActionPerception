@@ -7,6 +7,7 @@
 *.pdf
 *.xlsx
 *.pkl
+*/.ipynb_checkpoints/
 
 Decoding/BetterThanRandom/
 Decoding/__pycache__/
@@ -22,5 +23,3 @@ Results/
 Results/*
 Reports/
 Reports/*
-*/.ipynb_checkpoints/
-
