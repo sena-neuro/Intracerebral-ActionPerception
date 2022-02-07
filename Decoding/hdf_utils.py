@@ -17,8 +17,8 @@ last_hdf_file = max(Path(output_path).rglob('*intracerebral_action_data.hdf5'),
                         key=lambda file: file.stat().st_mtime)
 
 
-def read_hdf():
-    return h5py.File(last_hdf_file, 'r')
+def read_hdf(mode='r'):
+    return h5py.File(last_hdf_file, mode)
 
 
 def __initialize_label_region_df():
@@ -30,40 +30,55 @@ def __initialize_label_region_df():
     # Dataframe in which one column is leads the other is regions that those leads are in
     return get_leads_for_regions.get_leads_for_regions(left_lead_file_path, region_lead_labels_path)
 
-
-def __init():
+# TODO logs
+def __init(reset=False):
     global lead_name_to_idx, label_region_df
     with h5py.File(last_hdf_file, 'r+') as hdf:
         lead_name_to_idx = pickle.loads(hdf.attrs['lead_name_to_idx'])
         label_region_df = __initialize_label_region_df()
+        if reset:
+            hdf_attrs = ['masked', 'z_scored']
+
+            for a in hdf_attrs:
+                try:
+                    del hdf.attrs[a]
+                except:
+                    pass
+            hdf_attrs = ['masked', 'z_scored', 'small_x', 'big_x']
+            for ac in action_classes:
+                ac_group = hdf[ac]
+                for a in hdf_attrs:
+                    try:
+                        del ac_group.attrs[a]
+                    except:
+                        pass
+                try:
+                    del ac_group['mask']
+                except:
+                    pass
+                try:
+                    del ac_group['z_power']
+                except:
+                    pass
         __mask_power_dset(hdf)
         __add_z_scored_power_dset(hdf)
         # __add_region_dict(hdf)
 
 
-def __mask_power_dset(hdf: h5py.File, mask_extreme=True):
-    if 'masked_invalid' in hdf.attrs and hdf.attrs['masked_invalid']:
-        log('Raw power data is already masked for invalid values!')
-    if mask_extreme and 'masked_extremes' in hdf.attrs and hdf.attrs['masked_extremes']:
-            log('Raw power data is already masked for extreme values!')
+def __mask_power_dset(hdf: h5py.File):
+    if 'masked' in hdf.attrs and hdf.attrs['masked']:
+        log('Raw power data is already masked!')
     else:
         for ac in action_classes:
             ac_group = hdf[ac]
             power_arr = np.empty(ac_group['raw_power'].shape, dtype=np.float32)
             ac_group['raw_power'].read_direct(power_arr)
-            mask = np.isnan(power_arr)
-            if mask_extreme:
-                ma_power_arr = ma.masked_array(power_arr, mask=mask)
-                boundaries = (np.percentile(ma_power_arr, 0.01), np.percentile(ma_power_arr, 0.99))
-                mask = np.logical_or(mask, power_arr < boundaries[0], power_arr > boundaries[1])
-                ac_group.attrs['masked_extremes'] = True
-                ac_group.attrs['big_x'] = boundaries[0]
-                ac_group.attrs['small_x'] = boundaries[1]
-            ac_group.create_dataset('mask', data=mask)
-            ac_group.attrs['masked_invalid'] = True
-        if mask_extreme:
-            hdf.attrs['masked_extremes'] = True
-        hdf.attrs['masked_invalid'] = True
+            ma_power_arr = ma.masked_invalid(power_arr)
+            ma_power_arr = ma.masked_outside(ma_power_arr, 0, 1000)
+
+            ac_group.create_dataset('mask', data=ma_power_arr.mask)
+            ac_group.attrs['masked'] = True
+        hdf.attrs['masked'] = True
 
 
 def __add_z_scored_power_dset(hdf : h5py.File):
@@ -107,10 +122,20 @@ def __add_region_dict(hdf: h5py.File):
 
 
 def region_list():
+    if 'label_region_df' not in globals():
+        global label_region_df
+        label_region_df = __initialize_label_region_df()
     return list(label_region_df.region_idx.unique())
 
 
 def region_to_idx(region):
+    if 'label_region_df' not in globals():
+        global label_region_df
+        label_region_df = __initialize_label_region_df()
+    if 'lead_name_to_idx' not in globals():
+        global lead_name_to_idx
+        with read_hdf() as hdf:
+            lead_name_to_idx = pickle.loads(hdf.attrs['lead_name_to_idx'])
     # TODO for later, add multiple regions option
     lead_names_in_region = label_region_df[label_region_df.region_idx == region].lead_idx.values
     lead_idx_in_region = list(
@@ -120,13 +145,16 @@ def region_to_idx(region):
 
 
 def __leads_by_region():
+    if 'label_region_df' not in globals():
+        global label_region_df
+        label_region_df = __initialize_label_region_df()
     n_leads_by_region = label_region_df.groupby('region_idx').count()
     print(n_leads_by_region)
 
 
 def idx_to_leadname(lead_idx):
+    if 'lead_name_to_idx' not in globals():
+        global lead_name_to_idx
+        with read_hdf() as hdf:
+            lead_name_to_idx = pickle.loads(hdf.attrs['lead_name_to_idx'])
     return list(lead_name_to_idx.keys())[lead_idx]
-
-
-if __name__ == '__main__':
-    __init()
