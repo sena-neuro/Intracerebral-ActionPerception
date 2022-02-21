@@ -9,8 +9,8 @@
 *.pkl
 */.ipynb_checkpoints/
 
-Decoding/BetterThanRandom/
-Decoding/__pycache__/
+Analysis/BetterThanRandom/
+Analysis/__pycache__/
 PaintFiles
 Preprocessing/findRejDataLog
 Preprocessing/.*
