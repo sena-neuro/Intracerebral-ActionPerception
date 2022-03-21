@@ -371,4 +371,3 @@ dependencies:
     - tomli==2.0.1
     - twine==3.8.0
     - xarray==2022.3.0
-prefix: /auto/k2/ser/anaconda3/envs/mnedev
