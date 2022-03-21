@@ -1,6 +1,6 @@
 import mne_hfo
 import mne
-from src import project_config as cfg
+from seeg_action import project_config as cfg
 
 
 # MNE-HFO and pyqtgraph is not compatible
@@ -66,8 +66,8 @@ def hfo(orig_raw, subject_name):
 
     for detector in ["RMS", "LineLength"]:
         for filter_band in [ripple_band, fast_ripple_band]:
-            for window_size in [1000, 500]: # [10, 20, 25, 50]:
-                for threshold in [20, 15]: #[7, 10, 15]:
+            for window_size in [1000, 500]:  # [10, 20, 25, 50]:
+                for threshold in [20, 15]:  # [7, 10, 15]:
                     detect(raw,
                            detector_type=detector,
                            filter_band=filter_band,
