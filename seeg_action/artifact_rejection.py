@@ -11,7 +11,7 @@ def get_hfo_annotations(raw, detector='LineLength',
     hfo_params = {
         'detector': detector,
         'threshold': str(threshold),
-        'filterband': str(filter_band).replace(', ', '-'),
+        'filterband': str(filter_band).replace(', ', '-').replace('(', '').replace(')', ''),
         'winsize': str(win_size),
     }
 

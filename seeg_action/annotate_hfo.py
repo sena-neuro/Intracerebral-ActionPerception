@@ -9,7 +9,7 @@ from seeg_action import project_config as cfg
 # Then, read the annotated result file in another console
 # Now, you can plot the HFO annotations with pyqtgraph
 
-def detect(orig_raw, detector_type, filter_band, win_size, threshold, overlap=None):
+def detect(orig_raw, detector_type, filter_band, win_size, threshold, overlap=None, override=True):
     raw = orig_raw.copy()
 
     if overlap is None:
@@ -31,18 +31,30 @@ def detect(orig_raw, detector_type, filter_band, win_size, threshold, overlap=No
         raise RuntimeError(f'Cannot recognize parameter detector_type {detector_type}.'
                            f'Recognized values for detector_type are "RMS" and "LineLength".')
 
-    description = f"detector={detector_type}_" + "_".join(
-        f"{key.replace('_', '')}={value}" for key, value in kwargs.items())
-    description = description.replace(', ', '-').replace('sfreq=1000.0_', '')
-    print(description)
+    kwargs.pop("overlap")
+    kwargs.pop("sfreq")
+    kwargs['detector'] = detector_type
+    annot_filename = "_".join(f"{key.replace('_', '')}={value}" for key, value in kwargs.items()) + ".txt"
 
-    annot_filename = description + ".txt"
+    # Replace comma-space in win_size value
+    # since annotations values in .txt are read
+    # by splitting comma (in mne.read_annotations())
+    # e.g., (80, 250) -> (80-250)
+    annot_filename = annot_filename.replace(', ', '-').replace('(', '').replace(')', '')
+
+    # Check filename
+    print(annot_filename)
+
     annot_path = cfg.steps_save_path / annot_filename
-    # if annot_path.exists():
-    #    return
+
+    # If overriding old annotations is not desired
+    # and HFO annotations with same parameters is already created
+    # No need to detect HFO with the same parameters
+    if not override and annot_path.exists():
+        # Does nothing
+        return
 
     detector.fit(raw)
-
     df = detector.hfo_df
 
     # Create and save annotations
@@ -51,8 +63,9 @@ def detect(orig_raw, detector_type, filter_band, win_size, threshold, overlap=No
                             description=[f'HFO at {ch}' for ch in df.channels],
                             orig_time=None,
                             ch_names=[[ch] for ch in df.channels])
-
     annot.save(annot_path, overwrite=True)
+
+    # Returns detected HFO annotations
     return annot
 
 
@@ -68,10 +81,7 @@ def hfo(orig_raw, subject_name):
         for filter_band in [ripple_band, fast_ripple_band]:
             for window_size in [1000, 500]:  # [10, 20, 25, 50]:
                 for threshold in [20, 15]:  # [7, 10, 15]:
-                    detect(raw,
-                           detector_type=detector,
-                           filter_band=filter_band,
-                           win_size=window_size,
+                    detect(raw, detector_type=detector, filter_band=filter_band, win_size=window_size,
                            threshold=threshold)
 
 
