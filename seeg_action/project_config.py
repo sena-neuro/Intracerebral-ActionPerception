@@ -25,7 +25,6 @@ this.event_id_to_code = {
     9: 'SD-SC'}
 this.event_code_to_id = {v: k for k, v in this.event_id_to_code.items()}
 
-
 # Module-wide session variables
 module_wide_variables = {
     'current_subject': None,
