@@ -4,7 +4,7 @@ import project_config as cfg
 
 
 def epoch(raw):
-    all_events, all_event_id = mne.events_from_annotations(raw)
+    all_events, all_event_id = mne.events_from_annotations(raw, cfg.event_code_to_id)
     picks = mne.pick_types(raw.info, seeg=True, eeg=False, eog=False, stim=False)
     epochs = mne.Epochs(raw, all_events, event_id=all_event_id, picks=picks,
                         tmin=-0.5, tmax=2.6, baseline=(-0.5, 0),
