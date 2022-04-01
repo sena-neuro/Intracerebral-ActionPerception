@@ -10,19 +10,21 @@ this.raw_data_path = Path('/auto/data/burgen/StereoEEG_ActionBase')
 this.eeg_data_path = this.raw_data_path / 'EEGdata'
 this.event_codes_path = this.raw_data_path / 'LOG'
 this.output_path = Path('/auto/data2/ser/StereoEEG_ActionBase')
+this.patients_path = this.output_path / 'patients'
 this.steps_save_path = this.output_path / 'steps'
 this.results_path = this.output_path / 'results'
 this.exec_log_path = this.output_path / 'log'
 this.event_id_to_code = {
-    1: 'IP-ST',
-    2: 'IP-DC',
-    3: 'IP-SC',
-    4: 'MN-ST',
-    5: 'MN-DC',
-    6: 'MN-SC',
-    7: 'SD-ST',
-    8: 'SD-DC',
-    9: 'SD-SC'}
+    1: 'IP/ST',
+    2: 'IP/DC',
+    3: 'IP/SC',
+    4: 'MN/ST',
+    5: 'MN/DC',
+    6: 'MN/SC',
+    7: 'SD/ST',
+    8: 'SD/DC',
+    9: 'SD/SC'}
+
 this.event_code_to_id = {v: k for k, v in this.event_id_to_code.items()}
 
 # Module-wide session variables
