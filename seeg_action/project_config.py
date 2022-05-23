@@ -12,6 +12,11 @@ this.event_codes_path = this.raw_data_path / 'LOG'
 this.output_path = Path('/auto/data2/ser/StereoEEG_ActionBase')
 this.patients_path = this.output_path / 'patients'
 this.steps_save_path = this.output_path / 'steps'
+this.bad_annots_save_path = this.steps_save_path / 'BAD electrodes'
+
+if not this.bad_annots_save_path.exists():
+    this.bad_annots_save_path.mkdir()
+
 this.results_path = this.output_path / 'results'
 this.exec_log_path = this.output_path / 'log'
 this.event_id_to_code = {
@@ -24,8 +29,19 @@ this.event_id_to_code = {
     7: 'SD/ST',
     8: 'SD/DC',
     9: 'SD/SC'}
-
 this.event_code_to_id = {v: k for k, v in this.event_id_to_code.items()}
+this.condition_color_dict = \
+    {1: 'red',
+     2: 'lightcoral',
+     3: 'rosybrown',
+     4: 'blue',
+     5: 'lightblue',
+     6: 'lightsteelblue',
+     7: 'springgreen',
+     8: 'palegreen',
+     9: 'darkseagreen',
+     -1: 'black'
+     }
 
 # Module-wide session variables
 module_wide_variables = {
