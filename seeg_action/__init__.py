@@ -1,3 +1,5 @@
 import seeg_action.artifact_rejection
 import seeg_action.preprocessing
 import seeg_action.project_config
+import seeg_action.mass_univariate_analysis
+import seeg_action.regression
