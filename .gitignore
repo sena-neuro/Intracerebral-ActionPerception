@@ -1,6 +1,6 @@
 log/
-parma-stuff/
 data/
+scripts/old code
 .DS_Store
 .idea/
 *.xml
