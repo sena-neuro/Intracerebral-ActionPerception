@@ -1,56 +1,46 @@
 import mne
 from seeg_action import project_config as cfg
 from seeg_action import preprocessing as pp
-from seeg_action import artifact_rejection as ar
+from seeg_action import mass_univariate_analysis as mua
 
 if __name__ == '__main__':
-    mne.viz.set_browser_backend('pyqtgraph')
 
     # Take arguments and initialize configurations
     parser = cfg.init_argparse()
     args = parser.parse_args()
+    subject_name = args.subject_name
 
-    cfg.set_var('current_subject', args.subject_name)
-    cfg.set_var('redo', args.redo)
+    # Read filtered raw  EEG
+    filtered_raw_file = cfg.steps_save_path / f'{subject_name}_filtered_raw.fif'
 
-    # Read raw annotated EEG
-    raw_fif_file = cfg.steps_save_path / f'{args.subject_name}_STEP_0_annotated_raw.fif'
-    if raw_fif_file.exists() and not args.redo:
-        raw = mne.io.read_raw_fif(raw_fif_file)
+    if filtered_raw_file.exists():
+        raw = mne.io.read_raw_fif(filtered_raw_file)
     else:
-        raw = pp.nk_to_mne(args.subject_name)
-    orig_raw = raw.copy()
+        raw_fif_file = cfg.steps_save_path / f'{subject_name}_raw.fif'
+        raw = mne.io.read_raw_fif(raw_fif_file)
+        raw = raw.load_data()
+        iir_params = dict(order=6, ftype='butter')
+        raw = raw.filter(method='iir', iir_params=iir_params,
+                         l_freq=1.5, h_freq=300)
 
-    # # %%
-    # # HFO
-    # hfo_annotations = ar.get_hfo_annotations(raw,
-    #                                          detector='LineLength',
-    #                                          threshold=10,
-    #                                          filter_band=(80, 250),
-    #                                          win_size=10,
-    #                                          visualize=True)
-    #
-    # raw.set_annotations(raw.annotations + hfo_annotations)
-    #
-    # # Epoching
-    # epochs_fif_file = cfg.steps_save_path / f'{args.subject_name}_STEP_1_epo.fif'
-    # if epochs_fif_file.exists() and not args.redo:
-    #     epochs = mne.read_epochs(epochs_fif_file)
-    # else:
-    #     epochs = pp.epoch(raw)
-    #
-    # mn_st_epochs = epochs['MN-ST']
-    # mn_st_epochs.plot(scalings='auto', n_channels=10, n_epochs=5)
+        raw = pp.filter_power_line_noise(raw)
+        filtered_raw_file = cfg.steps_save_path / f'{subject_name}_filtered_raw.fif'
+        raw.save(filtered_raw_file, overwrite=True)
 
-    # PLOT Mean potential over channels per trial
-    # y-axis : epochs/trials
-    # x-axis : time
-    # color : mean mV over channels
-    # mn_st_epochs.plot_image(picks='seeg', combine='mean')
+    # for channel in raw.ch_names:
+    channel = "O'9"
+    channel_raw = raw.copy().pick(channel)
 
-    # PLOT Average Evoked Potential per channel
-    # y-axis : epochs/trials
-    # x-axis : time
-    # color : average evoked potential
-    # mn_st_evoked = mn_st_epochs.average()
-    # mn_st_evoked.plot_image()
+    all_events, event_id = mne.events_from_annotations(channel_raw, cfg.event_code_to_id)
+
+    epochs = mne.Epochs(channel_raw, all_events, event_id=event_id,
+                        preload=True,
+                        tmin=-0.5, tmax=2.6,
+                        baseline=(None, 0),
+                        detrend=1,
+                        reject={'seeg': 3},  # unit : V
+                        flat={'seeg': 1e-2},
+                        verbose=False
+                        )
+
+    epochs.equalize_event_counts()

@@ -1,4 +1,0 @@
-mne>=1.0.dev0
-numpy>=1.22.3
-setuptools>=60.9.3
-pandas>=1.4.1

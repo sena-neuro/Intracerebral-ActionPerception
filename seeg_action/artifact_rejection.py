@@ -1,6 +1,6 @@
 import mne
 import numpy as np
-import project_config as cfg
+from seeg_action import project_config as cfg
 
 
 def get_hfo_annotations(raw, detector='LineLength',
@@ -48,10 +48,3 @@ def _examine_hfo(raw, annot_file, hfo_params, visualize):
         title = " ".join(f"{key}={value}" for key, value in hfo_params.items())
         hfo_raw_lead.plot(scalings='auto', block=True, precompute=True, title=title)
     return hfo_annot
-
-
-def extract_gamma_power(epochs):
-    freqs = np.arange(50, 160, 10)
-    n_cycles = freqs * .1
-    gamma_power = mne.time_frequency.tfr_morlet(epochs, freqs=freqs, n_cycles=n_cycles, return_itc=False, use_fft=True,
-                                                n_jobs=4)
