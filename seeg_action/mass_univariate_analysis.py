@@ -2,10 +2,8 @@ import mne
 import numpy as np
 from mne.stats import f_threshold_mway_rm, f_mway_rm
 from mne.time_frequency import tfr_morlet
-import patsy
 import pandas as pd
 from seeg_action import project_config as cfg
-from mne.stats import linear_regression
 # pip install git+https://github.com/john-veillette/mne_ari.git
 from mne_ari import all_resolutions_inference
 
@@ -72,7 +70,7 @@ def regression(epochs, input_type='power', correction='ari'):
         n_cycles = freqs / freqs[0]
         epochs_tfr = tfr_morlet(epochs, freqs, n_cycles=n_cycles,
                               average=False, return_itc=False, n_jobs=-2)
-        epochs_tfr.apply_baseline(mode='zlogratio', baseline=(None, 0))
+        epochs_tfr.apply_baseline(mode='zlogratio', baseline=(None, -.2))
         data = epochs_tfr.data
 
     # Design matrix
@@ -86,13 +84,13 @@ def regression(epochs, input_type='power', correction='ari'):
     design['static_vs_dynamic'] = np.where(design.condition.str.contains('SC'), 1,  # Static control
                                             np.where(design.condition.str.contains('DC'), -1,  # Dynamic control
                                                      0))  # else action stimulus condition
-    design['MN_vs_IP+SD'] = np.where(design.condition.str.contains('MN'), 2,  # Manipulative actions
+    design['MN_vs_IP+SD'] = np.where(design.condition.str.contains('MN/ST'), 2,  # Manipulative actions
                                       np.where(
-                                          (design.condition.str.contains('IP') | design.condition.str.contains('SD')),
+                                          (design.condition.str.contains('IP/ST') | design.condition.str.contains('SD/ST')),
                                           -1,
                                           0))  # else control stimuli
-    design['IP_vs_SD'] = np.where(design.condition.str.contains('IP'), 1,  # Interpersonal actions
-                                   np.where(design.condition.str.contains('SD'), -1,  # Skin-displacing actions
+    design['IP_vs_SD'] = np.where(design.condition.str.contains('IP/ST'), 1,  # Interpersonal actions
+                                   np.where(design.condition.str.contains('SD/ST'), -1,  # Skin-displacing actions
                                             0))
     design.drop(columns='condition', inplace=True)
 
@@ -103,7 +101,15 @@ def regression(epochs, input_type='power', correction='ari'):
     alpha = .05
 
     def regression_stat_fun(data):
-        return p_val
+        # TODO dict to ndarray
+        return _regression(data, design, contrasts)[3]
+
+    # fig, ax = plt.subplots()
+    # c = ax.imshow(r2, aspect='auto', origin='lower',
+    #               extent=[times[0], times[-1], freqs[0], freqs[-1]])
+    # ax.set_title('r2')
+    # fig.colorbar(c, ax=ax)
+    # fig.show()
 
     if correction == 'ari':
         # All resolutions interface
@@ -114,17 +120,33 @@ def regression(epochs, input_type='power', correction='ari'):
 
 
         p_vals, tdp, clusters = all_resolutions_inference(data, alpha=alpha,
+                                                          n_permutations=100,
                                                           ari_type='permutation',
                                                           statfun=regression_stat_fun
                                                           )
         print('We found %d clusters' % len(clusters))
         return p_vals, tdp, clusters
 
-    #elif correction == 'fdr':
-    #    mask = []
-    #    for i in len(contrasts):
-    #        mask[i], pval_corrected[i] = mne.stats.fdr_correction(p_val, alpha=alpha)
-    #    return (pval_corrected, mask)
+    elif correction == 'fdr':
+        import matplotlib.pyplot as plt
+        mask = {}
+        pval_corrected = {}
+        times = epochs.times
+        for con in contrasts:
+            mask[con], pval_corrected[con] = mne.stats.fdr_correction(p_val[con], alpha=alpha)
+            F_obs_plot2 = beta[con][0].copy()
+            F_obs_plot2[~mask[con][0]] = np.nan
+            fig, ax = plt.subplots(figsize=(6, 4))
+            for f_image, cmap in zip([beta[con][0], F_obs_plot2], ['gray', 'autumn']):
+               c = ax.imshow(f_image, cmap=cmap, aspect='auto', origin='lower',
+                             extent=[times[0], times[-1], freqs[0], freqs[-1]])
+            fig.colorbar(c, ax=ax)
+            ax.set_xlabel('Time (ms)')
+            ax.set_ylabel('Frequency (Hz)')
+            ax.set_title(f'{con} \n'
+                        'FDR corrected (p <= 0.05)')
+            fig.tight_layout()
+            fig.show()
 
 
 
@@ -170,3 +192,19 @@ def _regression(data, design_matrix, names):
         mlog10_p_val[predictor] = -np.log10(p_val[predictor])
 
     return beta, stderr, t_val, p_val, mlog10_p_val
+
+
+def __regression(data, design_matrix, names):
+    from scipy import stats, linalg
+
+    n_samples = len(data)    # 576
+    n_features = np.product(data.shape[1:]) # 3101 or 155050 (3101 * 50) for tfr
+
+    n_rows, n_predictors = design_matrix.shape # (576, 4)
+
+    shape = (n_samples, n_features)
+    y = np.reshape(data, shape) # (576, 1, 3101) -> (576, 3101) or (576, 155050)
+    betas, resid_sum_squares, _, _ = linalg.lstsq(a=design_matrix, b=y)
+
+    betas = betas.reshape((n_predictors, data.shape[2], data.shape[3]))
+    return betas
