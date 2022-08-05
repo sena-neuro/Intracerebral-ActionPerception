@@ -1,6 +1,7 @@
 log/
 data/
-scripts/old code
+scripts/old code/
+scripts/old code/*
 .DS_Store
 .idea/
 *.xml
