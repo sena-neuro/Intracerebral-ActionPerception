@@ -1,5 +1,6 @@
 import mne
 from seeg_action import project_config as cfg
+from seeg_action import preprocessing as pp
 from seeg_action import mass_univariate_analysis as mua
 
 
@@ -11,4 +12,8 @@ if __name__ == '__main__':
 
     if cfg.epochs_file.exists():
         epochs = mne.read_epochs(cfg.epochs_file)
-        results = mua.mass_planned_contrast_anova(epochs)
+        epochs.pick_types(seeg=True)
+
+        epochs.drop_channels(pp.get_wm_channels(epochs.info))
+        epochs.pick(["V'4"])
+        mua.mass_planned_contrast_anova(epochs)

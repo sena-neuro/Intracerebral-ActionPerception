@@ -99,6 +99,10 @@ this.event_id_to_code = {
     8: 'SD/DC',
     9: 'SD/SC'}
 this.event_code_to_id = {v: k for k, v in this.event_id_to_code.items()}
+
+this.action_classes = set(map(lambda k: k.split('/')[0], this.event_code_to_id.keys()))
+this.presented_stimuli = set(map(lambda k: k.split('/')[-1], this.event_code_to_id.keys()))
+
 this.condition_color_dict = \
     {1: 'red',
      2: 'lightcoral',

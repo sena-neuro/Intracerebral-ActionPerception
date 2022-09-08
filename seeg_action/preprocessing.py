@@ -8,6 +8,18 @@ import re
 this = sys.modules[__name__]
 
 
+def get_wm_channels(info):
+    head_mri_t = mne.read_trans(cfg.subject_head_mri_t)
+    montage = info.get_montage()
+    montage.apply_trans(mne.transforms.invert_transform(head_mri_t))
+
+    labels, colors = mne.get_montage_volume_labels(
+        montage, cfg.current_subject, subjects_dir=cfg.patients_path, aseg='aseg')
+
+    wm_channels = [c for c, l in labels.items() if len(l) > 0 and "White-Matter" in l[0]]
+    return wm_channels
+
+
 def get_seeg_montage(info):
     import nibabel as nib
     import json

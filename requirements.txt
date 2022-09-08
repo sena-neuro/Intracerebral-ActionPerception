@@ -1,0 +1,7 @@
+mne
+matplotlib
+numpy
+h5py
+scipy
+setuptools
+pandas
