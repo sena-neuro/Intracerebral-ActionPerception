@@ -46,14 +46,16 @@ def get_seeg_montage(info):
         pos /= 1000.
         return pos
 
+    # Some channels are coded as X'1.0 instead of X'1 in the json file
+    # so we take the substring preceeding the dot.
     with open(cfg.subject_path / 'electrodes' / 'left_electrodes.json') as file:
         data_left = json.load(file)
-    channel_pos_dict = {chan['label'][:-2]: np.array(chan['position']) for chan in
+    channel_pos_dict = {chan['label'].split('.')[0] : np.array(chan['position']) for chan in
                         data_left['markups'][0]['controlPoints']}
     with open(cfg.subject_path / 'electrodes' / 'right_electrodes.json') as file:
         data_right = json.load(file)
     channel_pos_dict.update(
-        {chan['label'][:-2]: np.array(chan['position']) for chan in data_right['markups'][0]['controlPoints']}
+        {chan['label'].split('.')[0]: np.array(chan['position']) for chan in data_right['markups'][0]['controlPoints']}
     )
     channel_pos_dict_new = {k: transform(v) for k, v in channel_pos_dict.items() if k in info['ch_names']}
 
@@ -109,10 +111,10 @@ def find_eog_components(raw, ica_solution):
         # barplot of ICA component "EOG match" scores
         ica_solution.plot_scores(eog_scores)
 
-        #layout = mne.channels.make_grid_layout(raw.info, n_col=15)
+        # layout = mne.channels.make_grid_layout(raw.info, n_col=15)
 
         # plot diagnostics
-        #ica_solution.plot_properties(raw, picks=eog_indices, topomap_args=dict(pos=layout.pos))
+        # ica_solution.plot_properties(raw, picks=eog_indices, topomap_args=dict(pos=layout.pos))
 
         # plot ICs applied to raw data, with EOG matches highlighted
         ica_solution.plot_sources(raw, show_scrollbars=False)
@@ -125,7 +127,7 @@ def find_eog_components(raw, ica_solution):
 
 
 def export_raw_fif():
-    raw_file = next(cfg.raw_data_path.glob('*.[EDF][EEG]'))
+    raw_file = next(cfg.raw_data_path.glob('*.[EEG EDF]*'))
     if raw_file.suffix == '.EDF':
         raw = mne.io.read_raw_edf(raw_file, infer_types=True, stim_channel='DC09', exclude="E$|MILO|KG|DEL\d")
     elif raw_file.suffix == '.EEG':
@@ -153,25 +155,20 @@ def export_raw_fif():
     stim_raw.apply_function(discretize, picks=['DC09'])
     events = mne.find_stim_steps(stim_raw, merge=-10)
 
-    event_log_file = next(cfg.raw_data_path.glob(f'ActionBase_*{cfg.current_subject[1:-1]}.txt'))
-    event_codes = np.loadtxt(event_log_file, dtype='i4')
-    events[:, 2] = event_codes
+    event_log_file = next(cfg.raw_data_path.glob(f'ActionBase_*{cfg.current_subject[1:-1]}_detailed.txt'))
+
+    trial_no, detailed_event_id, detailed_description, simple_event_id = \
+        np.genfromtxt(event_log_file, delimiter='\t',
+                      dtype=None, encoding=None,
+                      converters={2: lambda s: s.replace('_', '/')[:14]},
+                      unpack=True)
+    events[:, 2] = detailed_event_id
 
     annot = mne.annotations_from_events(
         events=events, sfreq=stim_raw.info['sfreq'],
+        event_desc=dict(zip(detailed_event_id, detailed_description)),
         orig_time=stim_raw.info['meas_date'])
     raw.set_annotations(annot)
-
-    raw.annotations.rename({
-        '1': 'IP/ST',
-        '2': 'IP/DC',
-        '3': 'IP/SC',
-        '4': 'MN/ST',
-        '5': 'MN/DC',
-        '6': 'MN/SC',
-        '7': 'SD/ST',
-        '8': 'SD/DC',
-        '9': 'SD/SC'})
 
     def camel_case_split(str):
         return re.findall(r'[A-Z](?:[a-z]+|[A-Z]*(?=[A-Z]|$))', str)
@@ -184,8 +181,10 @@ def export_raw_fif():
     new_info['subject_info'] = subject_info
     raw.info.update(new_info)
 
+    raw.pick_types(seeg=True, eog=True)
+
     # set montage
-    raw.set_montage(get_seeg_montage(), on_missing='warn')
+    raw.set_montage(get_seeg_montage(raw.info), on_missing='warn')
 
     # Load bad channels
     if cfg.bad_channels_file.exists():
@@ -199,15 +198,15 @@ def export_raw_fif():
 
 def export_filtered_raw_fif():
     raw = mne.io.read_raw_fif(cfg.raw_fif_save_file)
-    raw_filtered = this.bandpass_filter(raw)
-    raw_filtered = this.filter_power_line_noise(raw_filtered)
+    raw_filtered = this._bandpass_filter(raw)
+    raw_filtered = this._filter_power_line_noise(raw_filtered)
     raw_filtered.save(cfg.filtered_raw_file, overwrite=True)
 
 
 def export_epochs():
     raw = mne.io.read_raw_fif(cfg.filtered_raw_file).load_data()
 
-    all_events, event_id = mne.events_from_annotations(raw, cfg.event_code_to_id)
+    all_events, event_id = mne.events_from_annotations(raw, cfg.event_description_to_id)
     epochs = mne.Epochs(raw, all_events, event_id=event_id,
                         preload=True,
                         tmin=-0.5, tmax=2.6,

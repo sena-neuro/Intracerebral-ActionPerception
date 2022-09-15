@@ -1,8 +1,7 @@
 import sys
 from pathlib import Path
 import argparse
-import matplotlib
-matplotlib.use("Qt5Agg")
+import numpy as np
 
 # this is a pointer to the module object instance itself.
 this = sys.modules[__name__]
@@ -78,40 +77,21 @@ def init_config(name):
         this.subject_head_mri_t = this.derivatives_path / f'{this.current_subject}-subject-mri-head-trans.fif'
         this.covariance_mat_file = this.derivatives_path / f'{this.current_subject}-cov.fif'
 
+        event_log_file = next(this.raw_data_path.glob(f'ActionBase_*{this.current_subject[1:-1]}_detailed.txt'))
 
+        trial_no, detailed_event_id, detailed_description, simple_event_id = \
+            np.genfromtxt(event_log_file, delimiter='\t',
+                          dtype=None, encoding=None,
+                          converters={2: lambda s: s.replace('_', '/')[:14]},
+                          unpack=True)
 
+        this.event_id_to_description = dict(zip(detailed_event_id, detailed_description))
+        this.event_description_to_id = dict(zip(detailed_description, detailed_event_id))
 
+        this.action_classes = set(map(lambda k: k.split('/')[0], detailed_description))
+        this.presented_stimuli = set(map(lambda k: k.split('/')[1], detailed_description))
 
     else:
         raise UserWarning(f'Project is already configured! \n'
                           f'You have tried to set the current subject to "{name}". \n'
                           f'However, current subject is already set to {this.current_subject}')
-
-
-this.event_id_to_code = {
-    1: 'IP/ST',
-    2: 'IP/DC',
-    3: 'IP/SC',
-    4: 'MN/ST',
-    5: 'MN/DC',
-    6: 'MN/SC',
-    7: 'SD/ST',
-    8: 'SD/DC',
-    9: 'SD/SC'}
-this.event_code_to_id = {v: k for k, v in this.event_id_to_code.items()}
-
-this.action_classes = set(map(lambda k: k.split('/')[0], this.event_code_to_id.keys()))
-this.presented_stimuli = set(map(lambda k: k.split('/')[-1], this.event_code_to_id.keys()))
-
-this.condition_color_dict = \
-    {1: 'red',
-     2: 'lightcoral',
-     3: 'rosybrown',
-     4: 'blue',
-     5: 'lightblue',
-     6: 'lightsteelblue',
-     7: 'springgreen',
-     8: 'palegreen',
-     9: 'darkseagreen',
-     -1: 'black'
-     }
