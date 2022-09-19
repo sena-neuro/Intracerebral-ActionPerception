@@ -27,6 +27,7 @@ this.oct_6_src_file = None
 this.vol_src_file = None
 this.subject_head_mri_t = None
 this.covariance_mat_file = None
+this.epochs_action_file = None
 
 
 # Argument Parser
@@ -69,6 +70,7 @@ def init_config(name):
         this.raw_fif_save_file = this.derivatives_path / f'{this.current_subject}-raw.fif.gz'
         this.filtered_raw_file = this.derivatives_path / f'{this.current_subject}-filtered-raw.fif.gz'
         this.epochs_file = this.derivatives_path / f'{this.current_subject}-epo.fif.gz'
+        this.epochs_action_file = this.derivatives_path / f'{this.current_subject}-action-epo.fif.gz'
         this.bad_channels_file = this.derivatives_path / f'{this.current_subject}-bad-channels.txt'
         this.ica_file = this.derivatives_path / f'{this.current_subject}-ica.fif.gz'
         this.montage_file = this.derivatives_path / f'{this.current_subject}-montage.fif'

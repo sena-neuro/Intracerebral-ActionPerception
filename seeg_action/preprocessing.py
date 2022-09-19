@@ -218,6 +218,19 @@ def export_epochs():
     epochs.save(cfg.epochs_file, overwrite=True)
 
 
+def export_action_minus_control_epochs():
+    epochs = mne.read_epochs(cfg.epochs_file)
+    epochs_action = epochs['ST']
+    for cond in epochs_action.event_id:
+        action_class, _, action_examplar, object_size, actor = cond.split('/')
+        evk_cs = epochs['/'.join([action_class, 'CS', object_size, actor])].average()
+        evk_cd = epochs['/'.join([action_class, 'CD', object_size, actor])].average()
+        evk_control = mne.combine_evoked([evk_cs, evk_cd], [0.5, 0.5])
+        epochs_action[cond].subtract_evoked(evk_control)
+
+    epochs_action.save(cfg.epochs_action_file, overwrite=True)
+
+
 # Auxiliary functions for filtering
 def _bandpass_filter(raw, l_freq=1.5, h_freq=300.):
     raw.load_data()
