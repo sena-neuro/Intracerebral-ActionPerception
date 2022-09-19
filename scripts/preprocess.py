@@ -13,11 +13,6 @@ import matplotlib.pyplot as plt
 # cfg.init_config(args.subject_name)
 cfg.init_config('PriviteraM')
 
-
-# %%
-epochs = mne.read_epochs(cfg.epochs_file)
-fig = mne.viz.plot_alignment(epochs.info, subject=cfg.current_subject, trans=cfg.subject_head_mri_t, mri_fiducials=True,
-                             subjects_dir=cfg.patients_path, coord_frame='mri', surfaces=['pial', 'head'])
 # %%
 # STEP 1: import .EDF or . EEG files, add events, export .fif
 if not cfg.raw_fif_save_file.exists():
@@ -50,7 +45,14 @@ eog_epochs.plot_image(combine='mean', evoked=True)
 if not cfg.epochs_file.exists():
     pp.export_epochs()
 
+# %%
+if not cfg.epochs_action_file.exists():
+    pp.export_action_minus_control_epochs()
+
+# %%
 epochs = mne.read_epochs(cfg.epochs_file)
+epochs.pick_types(seeg=True)
+
 # %%
 
 orig_epochs = epochs.copy()
@@ -72,8 +74,8 @@ def my_callback(ax, ch_idx):
     """
     mne.viz.plot_compare_evokeds(evk,
                                  picks=[ch_idx],
-                                 colors={'MN': 'red', 'IP': 'blue', 'SD': 'green'},
-                                 linestyles={'ST': 'solid', 'SC': ':', 'DC': '--'},
+                                 colors={'OBJ': 'red', 'PER': 'blue', 'BOD': 'green'},
+                                 linestyles={'ST': 'solid', 'CS': ':', 'CD': '--'},
                                  axes=ax,
                                  show=False,
                                  legend=True,
@@ -95,8 +97,8 @@ for e in electrodes:
                                            layout_scale=0.8):
         mne.viz.plot_compare_evokeds(evk,
                                      picks=[idx],
-                                     colors={'MN': 'red', 'IP': 'blue', 'SD': 'green'},
-                                     linestyles={'ST': 'solid', 'SC': ':', 'DC': '--'},
+                                     colors={'OBJ': 'red', 'PER': 'blue', 'BOD': 'green'},
+                                     linestyles={'ST': 'solid', 'CS': ':', 'CD': '--'},
                                      axes=ax,
                                      show=False,
                                      legend=False,
