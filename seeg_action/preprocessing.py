@@ -155,7 +155,7 @@ def export_raw_fif():
     stim_raw.apply_function(discretize, picks=['DC09'])
     events = mne.find_stim_steps(stim_raw, merge=-10)
 
-    event_log_file = next(cfg.raw_data_path.glob(f'ActionBase_*{cfg.current_subject[1:-1]}_detailed.txt'))
+    event_log_file = next(cfg.raw_data_path.glob(f'ActionBase_*{cfg.current_subject[1:-1]}*_detailed.txt'))
 
     trial_no, detailed_event_id, detailed_description, simple_event_id = \
         np.genfromtxt(event_log_file, delimiter='\t',

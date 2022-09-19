@@ -79,7 +79,7 @@ def init_config(name):
         this.subject_head_mri_t = this.derivatives_path / f'{this.current_subject}-subject-mri-head-trans.fif'
         this.covariance_mat_file = this.derivatives_path / f'{this.current_subject}-cov.fif'
 
-        event_log_file = next(this.raw_data_path.glob(f'ActionBase_*{this.current_subject[1:-1]}_detailed.txt'))
+        event_log_file = next(this.raw_data_path.glob(f'ActionBase_*{this.current_subject[1:-1]}*_detailed.txt'))
 
         trial_no, detailed_event_id, detailed_description, simple_event_id = \
             np.genfromtxt(event_log_file, delimiter='\t',
