@@ -1,23 +1,41 @@
 import mne
 import numpy as np
-import sys
-from seeg_action import project_config as cfg
-import re
+from seeg_action.project_config import ProjectConfig as cfg
 
+# import sys
 # this is a pointer to the module object instance itself.
-this = sys.modules[__name__]
+# this = sys.modules[__name__]
 
 
-def get_wm_channels(info):
+def export_bipolar_reference_epochs():
+    import re
+    epochs = mne.read_epochs(cfg.epochs_file)
+    epochs.pick_types(seeg=True)
+
+    pattern = r'^([A-Z]\'?)\d+'
+    shafts = list(set(re.search(pattern, ch).groups()[0] for ch in epochs.ch_names))
+
+    epochs_bpr = epochs.copy()
+    for shaft in shafts:
+        channels = [ch for ch in epochs.ch_names if re.search(pattern, ch).groups()[0] == shaft]
+        epochs_bpr = mne.set_bipolar_reference(epochs_bpr,
+                                               anode=channels[:-1],
+                                               cathode=channels[1:])
+
+    epochs_bpr.save(cfg.bipolar_ref_epochs_file, overwrite=True)
+
+def get_gm_channels(info):
     head_mri_t = mne.read_trans(cfg.subject_head_mri_t)
     montage = info.get_montage()
-    montage.apply_trans(mne.transforms.invert_transform(head_mri_t))
+    if head_mri_t.to_str == 'head':
+        head_mri_t = mne.transforms.invert_transform(head_mri_t)
+    montage.apply_trans(head_mri_t)
 
     labels, colors = mne.get_montage_volume_labels(
         montage, cfg.current_subject, subjects_dir=cfg.patients_path, aseg='aseg')
 
-    wm_channels = [c for c, l in labels.items() if len(l) > 0 and "White-Matter" in l[0]]
-    return wm_channels
+    gm_channels = [channel for channel, labels in labels.items() if any("Cerebral-Cortex" in l for l in labels)]
+    return gm_channels
 
 
 def get_seeg_montage(info):
@@ -28,7 +46,7 @@ def get_seeg_montage(info):
     lps_to_ras[0, 0] = -1.
     lps_to_ras[1, 1] = -1.
 
-    t1 = nib.load(cfg.subject_path / 'mri' / 'T1.mgz')
+    t1 = nib.load(cfg.T1_file)
 
     # An affine array that tells you the position of the image array data in a reference space.
     # affine : voxel to ras_coords_scanner_mm
@@ -46,26 +64,28 @@ def get_seeg_montage(info):
         pos /= 1000.
         return pos
 
-    # Some channels are coded as X'1.0 instead of X'1 in the json file
+    # Some channels are coded as X'1.0 instead of X'1 in the json file,
     # so we take the substring preceeding the dot.
-    with open(cfg.subject_path / 'electrodes' / 'left_electrodes.json') as file:
-        data_left = json.load(file)
-    channel_pos_dict = {chan['label'].split('.')[0] : np.array(chan['position']) for chan in
-                        data_left['markups'][0]['controlPoints']}
-    with open(cfg.subject_path / 'electrodes' / 'right_electrodes.json') as file:
-        data_right = json.load(file)
-    channel_pos_dict.update(
-        {chan['label'].split('.')[0]: np.array(chan['position']) for chan in data_right['markups'][0]['controlPoints']}
-    )
-    channel_pos_dict_new = {k: transform(v) for k, v in channel_pos_dict.items() if k in info['ch_names']}
+    with open(cfg.seeg_locations_file) as file:
+        data = json.load(file)
+    channel_pos_dict = {chan['label'].split('.')[0]: np.array(chan['position']) for chan in
+                        data['markups'][0]['controlPoints']}
+    channel_pos_dict_new = {
+        k: transform(v)
+            for k, v in channel_pos_dict.items()
+                if k in info['ch_names']
+    }
+
 
     montage = mne.channels.make_dig_montage(ch_pos=channel_pos_dict_new,
                                             coord_frame='mri')
-
-    fids, coord = mne.io.read_fiducials(cfg.subject_path / 'bem' / f'{cfg.current_subject}-fiducials.fif')
+    fids, coord = mne.io.read_fiducials(cfg.fiducials_file)
     montage.dig += fids
 
     montage.save(cfg.montage_file, overwrite=True)
+
+    mri_head_t = mne.channels.compute_native_head_t(montage)
+    mne.write_trans(cfg.subject_head_mri_t, mri_head_t, overwrite=True)
 
     return montage
 
@@ -111,10 +131,10 @@ def find_eog_components(raw, ica_solution):
         # barplot of ICA component "EOG match" scores
         ica_solution.plot_scores(eog_scores)
 
-        # layout = mne.channels.make_grid_layout(raw.info, n_col=15)
+        #layout = mne.channels.make_grid_layout(raw.info, n_col=15)
 
         # plot diagnostics
-        # ica_solution.plot_properties(raw, picks=eog_indices, topomap_args=dict(pos=layout.pos))
+        #ica_solution.plot_properties(raw, picks=eog_indices, topomap_args=dict(pos=layout.pos))
 
         # plot ICs applied to raw data, with EOG matches highlighted
         ica_solution.plot_sources(raw, show_scrollbars=False)
@@ -127,33 +147,90 @@ def find_eog_components(raw, ica_solution):
 
 
 def export_raw_fif():
+    import re
     raw_file = next(cfg.raw_data_path.glob('*.[EEG EDF]*'))
     if raw_file.suffix == '.EDF':
-        raw = mne.io.read_raw_edf(raw_file, infer_types=True, stim_channel='DC09', exclude="E$|MILO|KG|DEL\d")
+        # exclude = "E$|MILO|KG|DEL\d"
+        raw = mne.io.read_raw_edf(raw_file, infer_types=False, stim_channel='DC09')
     elif raw_file.suffix == '.EEG':
         raw = mne.io.read_raw_nihon(raw_file)
 
-    seeg_picks = mne.pick_channels_regexp(raw.ch_names, regexp='^[A-Z][\']?(\d+)')
-    stim_picks = mne.pick_channels_regexp(raw.ch_names, "DC")
-    eog_picks = mne.pick_channels_regexp(raw.ch_names, "EOG")
+    # --------------------------------------------------------------------------
+    # Channels
+    # --------------------------------------------------------------------------
+
+    # Here assumption is that the first one is an sEEG channel
+    duplicates = mne.pick_channels_regexp(raw.ch_names, '\w\d+-0')
+    if len(duplicates) != 0:
+        raw.rename_channels({raw.ch_names[idx]: raw.ch_names[idx].split('-')[0]
+                             for idx in duplicates})
+
+    ch_patterns = {
+        'misc': r'($[A-Z]\d|E-|MILO|TIB|E)(\d?)',
+        'eog': r'EOG',
+        'ecg': r'EKG|KG|DEL',
+        'ref': r'$',
+        'stim': r'DC',
+        'seeg': r'^[A-Z][\']?(\d+)',
+
+    }
+
 
     channel_type_dict = dict()
-    for idx in seeg_picks:
-        channel_type_dict[raw.ch_names[idx]] = 'seeg'
-    for idx in stim_picks:
-        channel_type_dict[raw.ch_names[idx]] = 'stim'
-    for idx in eog_picks:
-        channel_type_dict[raw.ch_names[idx]] = 'eog'
+    for ch_type, pattern in ch_patterns.items():
+        channel_type_dict.update(
+            dict.fromkeys(list(filter(re.compile(pattern).match, raw.ch_names)),
+                          ch_type))
     raw.set_channel_types(channel_type_dict)
 
+    # set montage
+    raw.set_montage(get_seeg_montage(raw.info), on_missing='warn')
+    non_seeg_chs = [k for k, v in raw.get_montage().get_positions()['ch_pos'].items() if np.isnan(v[0])]
+
+    raw.set_channel_types(
+        {
+            ch: 'eeg' for ch in non_seeg_chs if raw.get_channel_types(ch)[0] == 'seeg'
+        }
+    )
+
+    # Currently, this does nothing...
+    # Load bad channels
+    if cfg.bad_channels_file.exists():
+        raw.load_bad_channels(cfg.bad_channels_file)
+    # Create empty file
+    else:
+        cfg.bad_channels_file.touch()
+
+    # Sort channels
+    order = raw.copy().pick_types(seeg=True).info['ch_names'].copy()
+
+    # Sort based on hemisphere, electrode shaft, and number
+    def _order_key(x):
+        if "'" in x:
+            hemi = 10000
+            alpha, num = x.split("'")
+        else:
+            hemi = -10000
+            alpha, num = x[0], x[1:]
+        return hemi + ord(alpha) * 100 + int(num)
+
+    order.sort(key=_order_key)
+    non_seeg_order = sorted(list(set(raw.info['ch_names']).difference(order)))
+    order.extend(non_seeg_order)
+    raw = raw.reorder_channels(order)
+
+    # --------------------------------------------------------------------------
+    # Events
+    # --------------------------------------------------------------------------
     def discretize(arr):
         from sklearn.preprocessing import KBinsDiscretizer
         return KBinsDiscretizer(n_bins=2, encode='ordinal', strategy='kmeans') \
             .fit_transform(arr.reshape(-1, 1)).ravel()
 
-    stim_raw = raw.copy().pick('DC09').load_data()
+    stim_raw = raw.copy().pick_types(stim=True).load_data() # or pick DC09
     stim_raw.apply_function(discretize, picks=['DC09'])
     events = mne.find_stim_steps(stim_raw, merge=-10)
+    events = mne.pick_events(events, include=[1])[:576]
 
     event_log_file = next(cfg.raw_data_path.glob(f'ActionBase_*{cfg.current_subject[1:-1]}*_detailed.txt'))
 
@@ -170,6 +247,9 @@ def export_raw_fif():
         orig_time=stim_raw.info['meas_date'])
     raw.set_annotations(annot)
 
+    # --------------------------------------------------------------------------
+    # Info
+    # --------------------------------------------------------------------------
     def camel_case_split(str):
         return re.findall(r'[A-Z](?:[a-z]+|[A-Z]*(?=[A-Z]|$))', str)
 
@@ -181,25 +261,13 @@ def export_raw_fif():
     new_info['subject_info'] = subject_info
     raw.info.update(new_info)
 
-    raw.pick_types(seeg=True, eog=True)
-
-    # set montage
-    raw.set_montage(get_seeg_montage(raw.info), on_missing='warn')
-
-    # Load bad channels
-    if cfg.bad_channels_file.exists():
-        raw.load_bad_channels(cfg.bad_channels_file)
-    # Create empty file
-    else:
-        cfg.bad_channels_file.touch()
-
     raw.save(cfg.raw_fif_save_file, overwrite=True)
 
 
 def export_filtered_raw_fif():
     raw = mne.io.read_raw_fif(cfg.raw_fif_save_file)
-    raw_filtered = this._bandpass_filter(raw)
-    raw_filtered = this._filter_power_line_noise(raw_filtered)
+    raw_filtered = bandpass_filter(raw)
+    raw_filtered = _filter_power_line_noise(raw_filtered)
     raw_filtered.save(cfg.filtered_raw_file, overwrite=True)
 
 
@@ -218,6 +286,7 @@ def export_epochs():
     epochs.save(cfg.epochs_file, overwrite=True)
 
 
+
 def export_action_minus_control_epochs():
     epochs = mne.read_epochs(cfg.epochs_file)
     epochs_action = epochs['ST']
@@ -232,14 +301,14 @@ def export_action_minus_control_epochs():
 
 
 # Auxiliary functions for filtering
-def _bandpass_filter(raw, l_freq=1.5, h_freq=300.):
+def bandpass_filter(raw, l_freq=1.5, h_freq=300.):
     raw.load_data()
     raw.filter(l_freq=l_freq, h_freq=None, method='iir', iir_params=dict(order=6, ftype='butter'))
     raw.filter(l_freq=None, h_freq=h_freq, method='iir', iir_params=dict(order=6, ftype='butter'))
     return raw
 
 
-def _filter_power_line_noise(raw, freqs=None, notch_method='spectrum', visualize=False):
+def _filter_power_line_noise(raw, freqs=None, notch_method='spectrum'):
     if freqs is None:
         freqs = np.arange(50, 251, 50)
 
@@ -253,26 +322,6 @@ def _filter_power_line_noise(raw, freqs=None, notch_method='spectrum', visualize
         raw.load_data()
         raw_notch = raw.notch_filter(
             freqs=freqs, picks='seeg', method='spectrum_fit', filter_length='10s')
-    if visualize:
-        _visualize_power_line_filtering(raw, raw_notch, notch_method)
+
     return raw_notch
 
-
-def _add_arrows(axes):
-    for ax in axes:
-        freqs = ax.lines[-1].get_xdata()
-        psds = ax.lines[-1].get_ydata()
-        for freq in (50, 100, 150):
-            idx = np.searchsorted(freqs, freq)
-            # get ymax of a small region around the freq. of interest
-            y = psds[(idx - 4):(idx + 5)].max()
-            ax.arrow(x=freqs[idx], y=y + 18, dx=0, dy=-12, color='red',
-                     width=0.1, head_width=3, length_includes_head=True)
-
-
-def _visualize_power_line_filtering(raw, raw_notch, notch_method):
-    for title, data in zip(['Un', f'Notch ({notch_method})'], [raw, raw_notch]):
-        fig = data.plot_psd(fmax=155, average=True)
-        fig.subplots_adjust(top=0.85)
-        fig.suptitle('{}filtered'.format(title), size='xx-large', weight='bold')
-        _add_arrows(fig.axes[:2])

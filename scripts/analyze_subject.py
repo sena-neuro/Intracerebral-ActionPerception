@@ -1,14 +1,13 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import mne
-from seeg_action import project_config as cfg
+from seeg_action import project_config
 from seeg_action import preprocessing as pp
 import sys
 
 
-def progressbar(it, prefix="", size=60, out=sys.stdout): # Python3.6+
+def progressbar(it, prefix="", size=60, out=sys.stdout):
     count = len(it)
-
     def show(j):
         x = int(size*j/count)
         print(f"{prefix}[{u'█'*x}{('.'*(size-x))}] {j}/{count}", end='\r', file=out, flush=True)
@@ -21,14 +20,15 @@ def progressbar(it, prefix="", size=60, out=sys.stdout): # Python3.6+
 
 if __name__ == '__main__':
     # Take arguments and initialize configurations
-    parser = cfg.init_argparse()
+
+    parser = project_config.init_argparse()
     args = parser.parse_args()
-    cfg.init_config(args.subject_name)
+    cfg = project_config.ProjectConfig(args.subject_name)
 
     mne.set_log_level('ERROR')
     draw = False
 
-    epochs = mne.read_epochs(cfg.epochs_action_file)
+    epochs = mne.read_epochs(cfg.epochs_file)
     epochs.pick_types(seeg=True)
     epochs.drop_channels(pp.get_wm_channels(epochs.info))
 
